@@ -15,23 +15,23 @@
  *   - Tarkov est la fenetre au premier plan ;
  *   - le curseur est immobile depuis `hoverSettleMs` ;
  *   - `minOcrIntervalMs` s'est ecoule depuis le dernier OCR ;
- *   - les budgets de tentatives de cette position ne sont pas epuises.
+ *   - le budget d'OCR de cette position n'est pas epuise.
  *
  * Resultat : en deplacement continu de souris, aucun OCR n'est lance. A l'arret
  * sur un item, un a trois OCR sont lances puis plus rien tant que la souris ne
  * bouge pas. Au repos sur le bureau, la consommation est nulle.
  *
- * Deux budgets, pas un
- * --------------------
- * Le retry par position existe parce que le tooltip Tarkov apparait ~300 ms
- * apres l'immobilisation : les premiers cycles tombent sur une zone encore vide.
- * Ces cycles-la ne coutent que capture + localisation et sont comptes a part
- * (`MAX_LOCATE_ATTEMPTS_PER_SPOT`) ; seuls les cycles ayant reellement lu une
- * infobulle entament `MAX_OCR_ATTEMPTS_PER_SPOT`.
+ * Chercher n'est pas lire
+ * -----------------------
+ * Un cycle qui ne localise aucune infobulle coute capture + localisation
+ * (~25 ms) et signifie « le jeu ne l'a pas encore dessinee », pas « il n'y a
+ * rien ici ». Il ne consomme donc aucun budget : seuls les cycles ayant
+ * reellement lu une infobulle entament `MAX_OCR_ATTEMPTS_PER_SPOT`.
  *
- * Avec un budget unique, les trois tentatives etaient consommees avant que le
- * jeu ait dessine l'infobulle, et l'objet survole restait sans prix jusqu'au
- * prochain mouvement de souris.
+ * La recherche, elle, ne s'arrete jamais tant que le curseur est immobile — elle
+ * ralentit. `MISSES_BEFORE_BACKOFF` etire l'intervalle jusqu'a deux secondes
+ * apres une serie d'echecs, ce qui rend l'attente presque gratuite tout en
+ * rattrapant l'infobulle quel que soit son retard d'affichage.
  */
 
 import { EventEmitter } from 'node:events';
@@ -88,22 +88,28 @@ const MAX_CALIBRATION_SAMPLES = 40;
  */
 const MAX_OCR_ATTEMPTS_PER_SPOT = 3;
 
-/**
- * Tentatives de *reperage* autorisees sur une meme position.
- *
- * Budget distinct, et volontairement plus large. Un cycle qui ne localise aucune
- * infobulle coute seulement capture + localisation (~80 ms) et signifie « le jeu
- * ne l'a pas encore dessinee », pas « il n'y a rien ici ».
- *
- * Tarkov affiche son infobulle ~300 ms apres l'immobilisation du curseur. Avec
- * un budget unique de 3 partage avec l'OCR, les tentatives etaient consommees
- * avant meme son apparition, et plus rien n'etait retente jusqu'au prochain
- * mouvement de souris — l'objet survole restait sans prix indefiniment.
- *
- * 8 tentatives espacees de `minOcrIntervalMs` couvrent ~1 s, ce qui laisse une
- * marge confortable sur ce delai d'affichage.
- */
-const MAX_LOCATE_ATTEMPTS_PER_SPOT = 8;
+// Retire : plafond de tentatives de *reperage* sur une meme position.
+//
+// Il valait 8, soit environ une seconde. Passe ce delai, plus rien n'etait
+// retente tant que le curseur ne bougeait pas — et un objet survole sans
+// interruption restait donc sans prix, definitivement.
+//
+// Or l'infobulle de Tarkov n'apparait pas a delai fixe. Douze echantillons
+// preleves en jeu au moment ou la detection echouait le montrent : la fenetre de
+// recherche y contient l'inventaire, le libelle de la case survolee, et **aucune
+// boite d'infobulle**. Le localisateur n'avait rien rate, il n'y avait rien a
+// trouver — le jeu ne l'avait pas encore dessinee. Rejoues hors du jeu par
+// `npm run test:failures`, ces echantillons donnent 0/12, comme en conditions
+// reelles.
+//
+// Le plafond n'a plus de raison d'etre depuis que `MISSES_BEFORE_BACKOFF` existe.
+// Celui-ci ralentit la boucle apres une serie d'echecs, jusqu'a un cycle toutes
+// les deux secondes — environ 1 % d'un coeur. Continuer a regarder a ce rythme
+// coute donc moins cher que le plafond ne rapportait, et l'infobulle est
+// rattrapee des qu'elle apparait, quel que soit son retard.
+//
+// Le budget d'OCR, lui, reste : trois lectures infructueuses du **meme** texte
+// n'ont aucune raison d'en produire une quatrieme differente.
 
 /**
  * Echecs consecutifs au-dela desquels la boucle ralentit.
@@ -293,8 +299,6 @@ export class ItemDetector extends EventEmitter {
   private settledAt = 0;
   /** Position analysee lors du dernier OCR. */
   private lastOcrPoint: Point | null = null;
-  /** Cycles lances sur cette position, quel qu'en soit le resultat. */
-  private locateAttemptsAtSpot = 0;
   /** Sous-ensemble ayant reellement atteint l'OCR (infobulle localisee). */
   private ocrAttemptsAtSpot = 0;
   /**
@@ -358,7 +362,6 @@ export class ItemDetector extends EventEmitter {
 
   /** Force une detection immediate, quels que soient les temporisateurs (bouton de test). */
   async probe(): Promise<void> {
-    this.locateAttemptsAtSpot = 0;
     this.ocrAttemptsAtSpot = 0;
     this.lastOcrPoint = null;
     this.lastOcrAt = 0;
@@ -420,7 +423,6 @@ export class ItemDetector extends EventEmitter {
       this.settledAt = now;
       // Nouvelle position : les deux budgets repartent a zero.
       if (!this.lastOcrPoint || distance(cursor, this.lastOcrPoint) > config.cursorMoveThresholdPx) {
-        this.locateAttemptsAtSpot = 0;
         this.ocrAttemptsAtSpot = 0;
       }
     }
@@ -475,10 +477,8 @@ export class ItemDetector extends EventEmitter {
 
     if (now - this.settledAt < config.hoverSettleMs) return;
     if (now - this.lastOcrAt < this.currentInterval(config)) return;
-    if (this.locateAttemptsAtSpot >= MAX_LOCATE_ATTEMPTS_PER_SPOT) return;
     if (this.ocrAttemptsAtSpot >= MAX_OCR_ATTEMPTS_PER_SPOT) return;
 
-    this.locateAttemptsAtSpot++;
     this.lastOcrAt = now;
     this.lastOcrPoint = cursor;
     void this.detect(cursor, false);
@@ -722,7 +722,6 @@ export class ItemDetector extends EventEmitter {
       this.shownAtPoint = cursor;
       this.shownTooltipRect = tooltipRect;
       // Plus rien a tenter sur cette position : on a trouve.
-      this.locateAttemptsAtSpot = MAX_LOCATE_ATTEMPTS_PER_SPOT;
       this.ocrAttemptsAtSpot = MAX_OCR_ATTEMPTS_PER_SPOT;
       this.emit('match', summary satisfies PriceSummary, cursor, tooltipRect);
     } catch (err) {

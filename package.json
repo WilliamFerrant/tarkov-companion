@@ -16,6 +16,7 @@
     "test": "npm run test:match && npm run test:ocr",
     "test:match": "npm run build && node dist/tools/match-selftest.js",
     "test:ocr": "npm run build && node scripts/start.mjs --entry dist/tools/ocr-selftest.js",
+    "test:failures": "npm run build && node scripts/start.mjs --entry dist/tools/failure-selftest.js",
     "test:region": "npm run build && node scripts/start.mjs --entry dist/tools/region-selftest.js",
     "test:stutter": "npm run build && node scripts/stutter-probe.mjs",
     "test:icons": "npm run build && node scripts/start.mjs --entry dist/tools/icon-selftest.js",

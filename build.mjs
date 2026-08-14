@@ -72,6 +72,15 @@ const configs = [
   },
   {
     ...common,
+    entryPoints: [path.join(root, 'src/tools/failure-selftest.ts')],
+    outfile: path.join(outdir, 'tools/failure-selftest.js'),
+    platform: 'node',
+    target: 'node20',
+    format: 'cjs',
+    external: EXTERNAL,
+  },
+  {
+    ...common,
     entryPoints: [path.join(root, 'src/tools/region-selftest.ts')],
     outfile: path.join(outdir, 'tools/region-selftest.js'),
     platform: 'node',
