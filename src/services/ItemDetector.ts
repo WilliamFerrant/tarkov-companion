@@ -147,20 +147,21 @@ const DISMISS_MARGIN_PX = 90;
 /** Repli quand aucun rectangle d'infobulle n'est connu (mode zone fixe). */
 const DISMISS_DISTANCE_PX = 160;
 
-/**
- * Deplacement du curseur, en pixels logiques, au-dela duquel la carte affichee
- * est consideree perimee.
- *
- * La marge autour de l'infobulle ne suffit pas : en passant a l'objet voisin, le
- * curseur reste dedans, et la carte continuait d'afficher le prix de l'objet
- * **precedent** jusqu'a la detection suivante — environ 400 ms d'un prix faux.
- * Un trou est preferable a une valeur fausse : sur une cle ou une munition,
- * l'ecart se compte en centaines de milliers de roubles.
- *
- * 40 px valent environ la moitie d'une case d'inventaire : les micro-mouvements
- * et le tremblement de la main ne declenchent rien, un changement d'objet oui.
- */
-const STALE_DISTANCE_PX = 40;
+// Retire : masquage de la carte au-dela de 40 px de deplacement.
+//
+// La regle visait a ne pas laisser un prix faux a l'ecran en passant a l'objet
+// voisin. Elle se retournait contre son but : 40 px valent une demi-case, mais
+// un objet en occupe souvent deux ou trois. Balayer un seul gilet suffisait donc
+// a franchir le seuil, et la carte etait masquee puis reaffichee en boucle.
+//
+// Or chaque **apparition** de la carte est precisement ce qui fait saccader le
+// jeu — quatre tests successifs l'ont etabli, la chaine complete sans carte
+// affichee ne coutant rien. Releve en jeu sur un seul gilet survole, curseur en
+// 408, 626, 570, 482, 504 : cinq masquages et cinq reaffichages en 2,7 s.
+//
+// `movedAway` couvre deja le cas vise, et mieux : il mesure la sortie de
+// l'infobulle elle-meme, augmentee de `DISMISS_MARGIN_PX`, au lieu d'un rayon
+// fixe qui ignore la taille de l'objet.
 
 /**
  * Au-dessus de ce score, la correspondance est jugee sure et le garde-fou
@@ -415,13 +416,10 @@ export class ItemDetector extends EventEmitter {
         : Boolean(this.shownAtPoint && distance(cursor, this.shownAtPoint) > DISMISS_DISTANCE_PX);
       // Le curseur a change d'objet : la carte decrit desormais autre chose que
       // ce qui est survole. On la retire sans attendre la detection suivante.
-      const stale = Boolean(
-        this.shownAtPoint && distance(cursor, this.shownAtPoint) > STALE_DISTANCE_PX,
-      );
       const expired = now - this.shownAt > config.autoHideMs;
-      if (movedAway || stale || expired || !config.overlayEnabled) {
+      if (movedAway || expired || !config.overlayEnabled) {
         this.hide();
-      } else if (config.overlayFollowCursor) {
+      } else if (config.overlayFollowCursor && config.overlayTransparent) {
         // La carte prolonge l'infobulle du jeu, qui suit le curseur : elle doit
         // le suivre aussi, sans attendre la prochaine analyse.
         //
@@ -439,7 +437,7 @@ export class ItemDetector extends EventEmitter {
     // Tant qu'une carte est affichee et que le curseur n'a pas quitte l'objet,
     // l'infobulle du jeu montre le meme nom : relancer la chaine ne peut que
     // reproduire le meme resultat. Le bloc ci-dessus s'en assure — il masque
-    // deja la carte des que le curseur s'eloigne de `STALE_DISTANCE_PX`.
+    // deja la carte des que le curseur sort de l'infobulle.
     //
     // Sans cette regle, le moindre tremblement de souris remettait les budgets a
     // zero et relancait tout. Releve en jeu sur un seul objet survole :

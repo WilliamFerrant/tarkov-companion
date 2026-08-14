@@ -115,9 +115,22 @@ const CARD_BACKGROUND = '#0b0b0b';
  * n'est vrai que pour une fenetre opaque.
  */
 function overlayPad(config: AppConfig): number {
-  if (config.overlayFollowCursor) return OVERLAY_PAD;
+  if (isFollowing(config)) return OVERLAY_PAD;
   // Sans transparence, la marge serait un aplat visible autour de la carte.
   return config.overlayTransparent ? OVERLAY_PAD_STATIC : 0;
+}
+
+/**
+ * Le suivi est-il reellement actif ?
+ *
+ * Il repose entierement sur la marge : la carte glisse **a l'interieur** d'une
+ * fenetre plus grande qu'elle. Sur une fenetre opaque, cette marge n'est plus
+ * invisible — elle devient un grand rectangle noir autour de la carte, constate
+ * en jeu. Les deux reglages sont donc incompatibles, et la transparence
+ * l'emporte : sans elle, pas de suivi.
+ */
+export function isFollowing(config: AppConfig): boolean {
+  return config.overlayFollowCursor && config.overlayTransparent;
 }
 
 export function createOverlayWindow(config: AppConfig): BrowserWindow {
@@ -295,7 +308,7 @@ export function showOverlayAt(
  * position change reellement, pour ne pas solliciter le compositeur a vide.
  */
 export function followCursor(cursor: { x: number; y: number }, config: AppConfig): void {
-  if (!config.overlayFollowCursor) return;
+  if (!isFollowing(config)) return;
 
   const window = overlayWindow;
   if (!window || window.isDestroyed() || !window.isVisible() || !anchorOffset) return;
