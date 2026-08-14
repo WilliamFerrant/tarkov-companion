@@ -17,6 +17,7 @@
     "test:match": "npm run build && node dist/tools/match-selftest.js",
     "test:ocr": "npm run build && node scripts/start.mjs --entry dist/tools/ocr-selftest.js",
     "test:region": "npm run build && node scripts/start.mjs --entry dist/tools/region-selftest.js",
+    "test:stutter": "npm run build && node scripts/stutter-probe.mjs",
     "test:icons": "npm run build && node scripts/start.mjs --entry dist/tools/icon-selftest.js",
     "test:grid": "npm run build && node scripts/start.mjs --entry dist/tools/grid-selftest.js",
     "icons": "node scripts/make-icons.mjs",

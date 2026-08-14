@@ -433,6 +433,25 @@ export class ItemDetector extends EventEmitter {
     }
 
     if (this.busy || !config.overlayEnabled) return;
+
+    // --- Rien de nouveau a decouvrir ---
+    //
+    // Tant qu'une carte est affichee et que le curseur n'a pas quitte l'objet,
+    // l'infobulle du jeu montre le meme nom : relancer la chaine ne peut que
+    // reproduire le meme resultat. Le bloc ci-dessus s'en assure — il masque
+    // deja la carte des que le curseur s'eloigne de `STALE_DISTANCE_PX`.
+    //
+    // Sans cette regle, le moindre tremblement de souris remettait les budgets a
+    // zero et relancait tout. Releve en jeu sur un seul objet survole :
+    //
+    //   05:29:02.759  AR-15 ... OCR 199 ms
+    //   05:29:03.020  AR-15 ... OCR 196 ms
+    //   05:29:03.281  AR-15 ... OCR 194 ms
+    //
+    // Trois chaines completes en une demi-seconde, meme objet, carte meme pas
+    // redessinee : le travail etait integralement jete.
+    if (this.shownItemId) return;
+
     if (now - this.settledAt < config.hoverSettleMs) return;
     if (now - this.lastOcrAt < this.currentInterval(config)) return;
     if (this.locateAttemptsAtSpot >= MAX_LOCATE_ATTEMPTS_PER_SPOT) return;
