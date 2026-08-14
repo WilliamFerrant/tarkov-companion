@@ -35,7 +35,10 @@ const log = createLogger('windows');
  * etroite masque d'autant moins l'inventaire.
  */
 const OVERLAY_WIDTH = 170;
-/** Hauteur initiale, corrigee des que le renderer a mesure son contenu. */
+/**
+ * Hauteur initiale de la carte, avant mise a l'echelle, en pixels logiques.
+ * Corrigee des que le renderer a mesure son contenu reel.
+ */
 const OVERLAY_DEFAULT_HEIGHT = 130;
 
 /**
@@ -76,7 +79,19 @@ const preloadDir = path.join(__dirname, '..', 'preload');
 
 let overlayWindow: BrowserWindow | null = null;
 let settingsWindow: BrowserWindow | null = null;
-/** Derniere hauteur rapportee par le renderer overlay. */
+/**
+ * Hauteur de la carte, en pixels **deja mis a l'echelle**.
+ *
+ * Le renderer applique `--scale` a chacune de ses dimensions : la hauteur qu'il
+ * mesure inclut donc deja `overlayScale`. La remultiplier cote principal
+ * surestimait la carte de 60 % a l'echelle 1,6 — 346 px reserves pour 216 px
+ * reels. Consequences constatees en jeu : pres du bord bas, la carte remontait
+ * de 130 px de trop et recouvrait le curseur ; et le test de recouvrement avec
+ * l'infobulle declenchait a tort la bascule laterale.
+ *
+ * La largeur, elle, n'a jamais eu ce defaut : elle est calculee de la meme
+ * facon des deux cotes, `OVERLAY_WIDTH * overlayScale`.
+ */
 let overlayHeight = OVERLAY_DEFAULT_HEIGHT;
 /**
  * Decalage entre le curseur et le coin haut-gauche de la carte, fige lors du
@@ -185,6 +200,11 @@ export function createOverlayWindow(config: AppConfig): BrowserWindow {
     },
   });
 
+  // `overlayHeight` est exprime en pixels deja mis a l'echelle : la valeur par
+  // defaut, elle, ne l'est pas encore. Elle tient jusqu'a la premiere mesure du
+  // renderer, qui la remplace par la hauteur reelle.
+  overlayHeight = Math.round(OVERLAY_DEFAULT_HEIGHT * config.overlayScale);
+
   // 'screen-saver' est le niveau le plus haut expose par Electron ; c'est le seul
   // qui reste visible au-dessus d'un jeu en borderless fullscreen.
   window.setAlwaysOnTop(true, 'screen-saver');
@@ -225,12 +245,17 @@ export function applyClickThrough(window: BrowserWindow, clickThrough: boolean):
   window.setIgnoreMouseEvents(clickThrough, { forward: false });
 }
 
-/** Memorise la hauteur mesuree cote renderer et redimensionne la fenetre. */
+/**
+ * Memorise la hauteur mesuree cote renderer et redimensionne la fenetre.
+ *
+ * `height` arrive **deja mis a l'echelle** : le renderer applique `--scale` a
+ * chacune de ses dimensions avant de mesurer. Aucune multiplication ici.
+ */
 export function setOverlayHeight(height: number, config: AppConfig): void {
   if (!overlayWindow || overlayWindow.isDestroyed()) return;
-  // Plancher abaisse a 60 : la carte compacte, sans icone ni badge, descend
-  // sous les 80 px d'autrefois. Un plancher trop haut laisserait une bande vide.
-  const clamped = Math.max(60, Math.min(700, Math.round(height)));
+  // Bornes larges : a l'echelle 2,5 une carte complete depasse 400 px, et le
+  // plancher couvre la carte compacte sans icone ni badge.
+  const clamped = Math.max(60, Math.min(900, Math.round(height)));
   if (clamped === overlayHeight) return;
   overlayHeight = clamped;
   // En mode permanent la fenetre couvre l'ecran : sa taille ne depend pas de
@@ -241,7 +266,7 @@ export function setOverlayHeight(height: number, config: AppConfig): void {
     ...overlayWindow.getBounds(),
     // La marge fait partie de la fenetre : sans elle, la carte serait rognee des
     // qu'elle glisse vers le bas.
-    height: Math.round(clamped * config.overlayScale) + overlayPad(config) * 2,
+    height: clamped + overlayPad(config) * 2,
   });
 }
 
@@ -272,7 +297,7 @@ export function showOverlayAt(
   const display = screen.getDisplayNearestPoint(cursor);
   const area = display.workArea;
   const width = Math.round(OVERLAY_WIDTH * config.overlayScale);
-  const height = Math.round(overlayHeight * config.overlayScale);
+  const height = overlayHeight;
 
   // Ancrage sur le **curseur**, pas sur l'infobulle detectee.
   //
@@ -402,7 +427,7 @@ export function followCursor(cursor: { x: number; y: number }, config: AppConfig
 
   const frame = window.getBounds();
   const width = Math.round(OVERLAY_WIDTH * config.overlayScale);
-  const height = Math.round(overlayHeight * config.overlayScale);
+  const height = overlayHeight;
 
   // Position voulue de la carte, puis position correspondante **dans** la
   // fenetre. Tant qu'elle tient dans la marge, la fenetre n'a pas a bouger : la
