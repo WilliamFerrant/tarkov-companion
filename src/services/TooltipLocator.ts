@@ -273,6 +273,20 @@ export function locateTooltip(
       const distance = distanceToRect(options.cursorX, options.cursorY, rect);
       if (distance > limits.maxDistance) continue;
 
+      // Une infobulle contient forcement du texte.
+      //
+      // Sans ce filtre, un bloc sombre uniforme de l'inventaire l'emporte des que
+      // l'infobulle est etroite : le score privilegie la largeur, et un nom court
+      // n'en offre que peu. Constate en jeu sur « Key tool » — zone retenue
+      // 130x45, remplissage 100 %, et l'etape suivante rendait « aucun texte
+      // detecte dans la zone ». Le cycle etait perdu alors que l'infobulle etait
+      // bien presente, quelques dizaines de pixels a cote.
+      //
+      // Le test est place ici, et non apres coup : rejeter le meilleur candidat
+      // trop tard revient a ne rien detecter, alors que le suivant etait peut-etre
+      // le bon.
+      if (!containsText(bgra, width, height, rect)) continue;
+
       // L'infobulle est la boite pleine **collee** au curseur. Le remplissage
       // ecarte les composantes etendues mais creuses (grille, decor) ; la
       // decroissance exponentielle avec la distance ecarte les panneaux
@@ -338,6 +352,100 @@ function downsampleToGray(
     }
   }
   return cells;
+}
+
+/**
+ * Ecart minimal, en luminance, entre le texte et le fond d'une infobulle.
+ *
+ * Meme grandeur que `MIN_CLASS_SEPARATION` du pretraitement, et pour la meme
+ * raison : en dessous, la zone est quasi uniforme et il n'y a rien a lire.
+ * L'appliquer ici plutot qu'apres coup permet d'essayer le candidat suivant.
+ */
+const MIN_TEXT_SEPARATION = 25;
+
+/**
+ * Part minimale et maximale de pixels clairs attendue dans une infobulle.
+ *
+ * Le texte d'un nom d'objet couvre quelques pourcents de la boite : au-dessus de
+ * la borne haute, ce n'est plus du texte sur un fond mais deux zones de
+ * luminances differentes accolees — un bord d'icone, une bordure de case.
+ */
+const MIN_TEXT_COVERAGE = 0.012;
+const MAX_TEXT_COVERAGE = 0.45;
+
+/** Un pixel sur combien, par axe, est examine par `containsText`. */
+const TEXT_SAMPLE_STEP = 2;
+
+/**
+ * Le rectangle contient-il du texte ?
+ *
+ * Deux populations de luminance nettement separees, la plus claire couvrant une
+ * petite part de la surface. C'est la signature d'un nom d'objet sur son fond,
+ * et ce que ne presente ni un aplat sombre, ni un degrade.
+ *
+ * Travaille sur les pixels d'origine, un sur deux par axe : la grille
+ * sous-echantillonnee du localisateur a justement efface le texte par moyennage,
+ * elle ne peut donc pas servir ici.
+ */
+function containsText(bgra: Buffer, width: number, height: number, rect: Rect): boolean {
+  const x1 = Math.min(width, rect.x + rect.width);
+  const y1 = Math.min(height, rect.y + rect.height);
+
+  const histogram = new Uint32Array(256);
+  let total = 0;
+  for (let y = Math.max(0, rect.y); y < y1; y += TEXT_SAMPLE_STEP) {
+    const row = y * width;
+    for (let x = Math.max(0, rect.x); x < x1; x += TEXT_SAMPLE_STEP) {
+      const offset = (row + x) * 4;
+      const value =
+        (bgra[offset + 2]! * 299 + bgra[offset + 1]! * 587 + bgra[offset]! * 114) / 1000;
+      histogram[value | 0]!++;
+      total++;
+    }
+  }
+  if (total < 64) return false;
+
+  // Seuil d'Otsu : la frontiere qui separe au mieux les deux populations, quelle
+  // que soit leur proportion. Un percentile echouerait ici, le texte occupant
+  // moins de 5 % des pixels.
+  let sum = 0;
+  for (let value = 0; value < 256; value++) sum += value * histogram[value]!;
+
+  let bestThreshold = 0;
+  let bestVariance = -1;
+  let weightLow = 0;
+  let sumLow = 0;
+  for (let value = 0; value < 256; value++) {
+    weightLow += histogram[value]!;
+    if (weightLow === 0) continue;
+    const weightHigh = total - weightLow;
+    if (weightHigh === 0) break;
+    sumLow += value * histogram[value]!;
+    const meanLow = sumLow / weightLow;
+    const meanHigh = (sum - sumLow) / weightHigh;
+    const variance = weightLow * weightHigh * (meanLow - meanHigh) ** 2;
+    if (variance > bestVariance) {
+      bestVariance = variance;
+      bestThreshold = value;
+    }
+  }
+
+  let weight = 0;
+  let low = 0;
+  for (let value = 0; value <= bestThreshold; value++) {
+    weight += histogram[value]!;
+    low += value * histogram[value]!;
+  }
+  if (weight === 0 || weight === total) return false;
+
+  const meanLow = low / weight;
+  const meanHigh = (sum - low) / (total - weight);
+  if (Math.abs(meanHigh - meanLow) < MIN_TEXT_SEPARATION) return false;
+
+  // La population minoritaire est le texte, quel que soit son cote : Tarkov
+  // ecrit clair sur sombre, mais rien n'interdit l'inverse sur un fond clair.
+  const coverage = Math.min(weight, total - weight) / total;
+  return coverage >= MIN_TEXT_COVERAGE && coverage <= MAX_TEXT_COVERAGE;
 }
 
 /** Marque les cellules recouvertes par la zone a ignorer (la carte de prix). */
