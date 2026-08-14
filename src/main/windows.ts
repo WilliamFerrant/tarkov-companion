@@ -95,6 +95,14 @@ const OVERLAY_PAD = 160;
 const OVERLAY_PAD_STATIC = 4;
 
 /**
+ * Fond de la carte, repris de `overlay.css` (`--bg`).
+ *
+ * Sert uniquement lorsque la fenetre n'est pas transparente : elle doit alors
+ * peindre quelque chose, et toute autre couleur laisserait un liseré visible.
+ */
+const CARD_BACKGROUND = '#0b0b0b';
+
+/**
  * Marge effective, selon que la carte suit le curseur ou non.
  *
  * Pourquoi le suivi coute si cher : une fenetre **transparente** ne peut pas
@@ -107,7 +115,9 @@ const OVERLAY_PAD_STATIC = 4;
  * n'est vrai que pour une fenetre opaque.
  */
 function overlayPad(config: AppConfig): number {
-  return config.overlayFollowCursor ? OVERLAY_PAD : OVERLAY_PAD_STATIC;
+  if (config.overlayFollowCursor) return OVERLAY_PAD;
+  // Sans transparence, la marge serait un aplat visible autour de la carte.
+  return config.overlayTransparent ? OVERLAY_PAD_STATIC : 0;
 }
 
 export function createOverlayWindow(config: AppConfig): BrowserWindow {
@@ -116,7 +126,11 @@ export function createOverlayWindow(config: AppConfig): BrowserWindow {
     height: Math.round(OVERLAY_DEFAULT_HEIGHT * config.overlayScale),
     show: false,
     frame: false,
-    transparent: true,
+    // Voir `AppConfig.overlayTransparent` : une fenetre transparente est
+    // nettement plus couteuse a composer par-dessus un jeu qu'une fenetre
+    // opaque, et la mesure a montre que l'affichage de la carte est la seule
+    // cause de saccade qui subsiste.
+    transparent: config.overlayTransparent,
     hasShadow: false,
     resizable: false,
     movable: false,
@@ -127,7 +141,9 @@ export function createOverlayWindow(config: AppConfig): BrowserWindow {
     // Empeche l'overlay de voler le focus au jeu : critique, un alt-tab
     // involontaire en pleine raid serait inacceptable.
     focusable: false,
-    backgroundColor: '#00000000',
+    // Sans transparence, la fenetre doit peindre un fond : celui de la carte,
+    // pour que la marge residuelle ne se voie pas.
+    backgroundColor: config.overlayTransparent ? '#00000000' : CARD_BACKGROUND,
     webPreferences: {
       preload: path.join(preloadDir, 'overlay.preload.js'),
       contextIsolation: true,

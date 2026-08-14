@@ -15,6 +15,8 @@
  */
 
 import { app, ipcMain, screen, shell, type BrowserWindow } from 'electron';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import type { AppConfig, CacheStatus, DebugFrame, GameMode, PriceSummary } from '../types/index';
 import { IPC } from '../types/ipc';
 import { initLogger, createLogger, getLogDir, setVerbose } from '../services/Logger';
@@ -67,22 +69,50 @@ const foreground = new ForegroundWatcher();
 app.setAppUserModelId('local.tarkov.price.hover');
 
 /**
- * Coupe l'acceleration materielle de Chromium.
+ * Acceleration materielle de Chromium.
  *
- * Constate en jeu : l'application faisait saccader Tarkov **alors qu'elle ne
- * capturait rien** — flux desactive, aucune detection, aucun OCR. Le cout ne
- * venait donc pas du pipeline, mais de la simple presence d'Electron : ses
- * processus de rendu sont des clients GPU, et sur un jeu qui sature deja une
- * carte en 4K, chaque client supplementaire prend des images.
+ * Elle avait ete coupee sur une hypothese : que la simple presence d'Electron,
+ * client GPU supplementaire, prenait des images au jeu. **Cette hypothese est
+ * fausse**, et la mesure l'a etablie — trois tests successifs, chacun isolant
+ * une couche :
  *
- * Le rendu logiciel supprime cette concurrence. Le prix est nul ici : l'overlay
- * est une carte statique de quelques dizaines de noeuds, sans animation ni
- * transition — exactement le genre de surface qu'un CPU dessine sans effort. La
- * fenetre de reglages, elle, n'est ouverte que ponctuellement.
+ *   capture de region seule, sans Electron       aucune saccade
+ *   Electron lance, detection coupee             aucune saccade
+ *   chaine complete, carte jamais affichee       aucune saccade
+ *   chaine complete, carte affichee              saccades
  *
- * A appeler avant `whenReady` : au-dela, le processus GPU est deja lance.
+ * Le cout ne vient donc ni du pipeline, ni d'Electron, mais de **l'affichage de
+ * la carte**. Or couper le GPU aggrave precisement ce cas : une fenetre
+ * transparente est alors composee par le processeur, image par image, et remise
+ * au DWM par le chemin logiciel.
+ *
+ * L'acceleration est donc retablie. Le reglage `hardwareAcceleration` permet de
+ * la recouper sur une machine ou elle poserait probleme.
+ *
+ * Lu directement dans le fichier : ce choix doit etre fait **avant**
+ * `whenReady`, alors que `ConfigStore` n'est construit qu'apres.
  */
-app.disableHardwareAcceleration();
+if (!readEarlyFlag('hardwareAcceleration', true)) {
+  app.disableHardwareAcceleration();
+}
+
+/**
+ * Lit un booleen de la configuration avant l'initialisation d'Electron.
+ *
+ * Volontairement minimal et silencieux : un fichier absent, illisible ou
+ * invalide rend la valeur par defaut. Aucun journal n'est possible ici, le
+ * logger n'etant pas encore construit — et `ConfigStore` signalera de toute
+ * facon le probleme quelques millisecondes plus tard.
+ */
+function readEarlyFlag(key: string, fallback: boolean): boolean {
+  try {
+    const file = path.join(app.getPath('userData'), 'config.json');
+    const parsed = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
+    return typeof parsed[key] === 'boolean' ? (parsed[key] as boolean) : fallback;
+  } catch {
+    return fallback;
+  }
+}
 
 /**
  * Bascule la capture d'ecran sur **Windows Graphics Capture** plutot que sur la

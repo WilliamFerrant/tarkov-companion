@@ -205,6 +205,32 @@ export interface AppConfig {
    * Activez-le si votre machine l'absorbe ; c'est plus agreable a l'oeil.
    */
   overlayFollowCursor: boolean;
+  /**
+   * Fenetre overlay transparente.
+   *
+   * Trois tests successifs ont etabli que **l'affichage de la carte est la seule
+   * cause de saccade restante** : capture de region seule, Electron sans
+   * detection, puis chaine complete sans carte affichee — aucun des trois ne
+   * fait saccader le jeu ; la carte affichee, si.
+   *
+   * Une fenetre transparente coute nettement plus cher a composer par-dessus un
+   * jeu qu'une fenetre opaque : chaque image doit etre melangee au fond, et
+   * Windows ne peut plus presenter le jeu par le chemin direct. Passer a
+   * `false` rend la carte rectangulaire, sans coins arrondis ni fondu, mais
+   * supprime ce melange.
+   */
+  overlayTransparent: boolean;
+  /**
+   * Acceleration materielle de Chromium.
+   *
+   * Coupee un temps sur l'hypothese — fausse — que la presence d'Electron
+   * volait des images au jeu. Sans elle, une fenetre transparente est composee
+   * par le processeur : cela aggrave exactement le seul cout qui restait.
+   *
+   * Lu directement dans `config.json` au demarrage, avant l'initialisation
+   * d'Electron : ce choix ne peut pas etre fait plus tard.
+   */
+  hardwareAcceleration: boolean;
   /** Opacite de la carte overlay, 0.1 a 1. */
   overlayOpacity: number;
   /** Facteur d'echelle de la carte overlay. */
@@ -253,6 +279,8 @@ export const DEFAULT_CONFIG: AppConfig = {
   useCaptureStream: false,
   showIcon: true,
   overlayFollowCursor: false,
+  overlayTransparent: true,
+  hardwareAcceleration: true,
   overlayOpacity: 0.95,
   overlayScale: 1,
   hotkeys: {
