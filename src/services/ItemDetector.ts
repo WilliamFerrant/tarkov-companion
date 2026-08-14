@@ -147,6 +147,22 @@ const DISMISS_MARGIN_PX = 90;
 /** Repli quand aucun rectangle d'infobulle n'est connu (mode zone fixe). */
 const DISMISS_DISTANCE_PX = 160;
 
+/**
+ * Deplacement du curseur, en pixels logiques, au-dela duquel l'objet survole est
+ * reverifie alors qu'une carte est deja affichee.
+ *
+ * Plus petit qu'une case d'inventaire (~63 px a 1080p) : passer a la case
+ * voisine declenche donc toujours une verification, ce qui est exactement le cas
+ * a rattraper — sans cela, la carte gardait le prix de l'objet precedent tant
+ * que le curseur restait dans la marge de l'ancienne infobulle.
+ *
+ * Le cout d'une verification est une chaine complete sans aucune operation de
+ * fenetre : ~60 ms de processeur, et rien de plus si l'objet n'a pas change.
+ * Les mesures ont etabli que c'est l'affichage, pas le calcul, qui fait saccader
+ * le jeu — ce budget-la est donc sans consequence.
+ */
+const RECHECK_DISTANCE_PX = 35;
+
 // Retire : masquage de la carte au-dela de 40 px de deplacement.
 //
 // La regle visait a ne pas laisser un prix faux a l'ecran en passant a l'objet
@@ -434,21 +450,28 @@ export class ItemDetector extends EventEmitter {
 
     // --- Rien de nouveau a decouvrir ---
     //
-    // Tant qu'une carte est affichee et que le curseur n'a pas quitte l'objet,
-    // l'infobulle du jeu montre le meme nom : relancer la chaine ne peut que
-    // reproduire le meme resultat. Le bloc ci-dessus s'en assure — il masque
-    // deja la carte des que le curseur sort de l'infobulle.
+    // Une carte est affichee : faut-il verifier qu'elle decrit toujours le bon
+    // objet ?
     //
-    // Sans cette regle, le moindre tremblement de souris remettait les budgets a
-    // zero et relancait tout. Releve en jeu sur un seul objet survole :
+    // Deux choses a ne pas confondre — **masquer** la carte, et **autoriser une
+    // nouvelle analyse**. Les avoir liees a produit tour a tour les deux
+    // defauts opposes :
     //
-    //   05:29:02.759  AR-15 ... OCR 199 ms
-    //   05:29:03.020  AR-15 ... OCR 196 ms
-    //   05:29:03.281  AR-15 ... OCR 194 ms
+    //   masquage au moindre mouvement  -> la carte disparaissait et reapparaissait
+    //                                     cinq fois sur un seul gilet survole, et
+    //                                     chaque reapparition faisait saccader le jeu
+    //   aucune nouvelle analyse tant   -> en passant a l'objet voisin, le curseur
+    //   que la carte est affichee         restait dans la marge de l'ancienne
+    //                                     infobulle : le prix affiche restait celui
+    //                                     de l'objet precedent
     //
-    // Trois chaines completes en une demi-seconde, meme objet, carte meme pas
-    // redessinee : le travail etait integralement jete.
-    if (this.shownItemId) return;
+    // La carte reste donc affichee, mais l'analyse est relancee des que le
+    // curseur a parcouru de quoi changer de case. Si l'objet est le meme, la
+    // chaine se termine sans rien reafficher (voir le retour anticipe sur
+    // `shownItemId === best.item.id`) : du travail processeur, mais aucune
+    // operation de fenetre — et c'est bien l'affichage, pas le calcul, qui
+    // saccade.
+    if (this.shownItemId && !this.shouldRecheck(cursor)) return;
 
     if (now - this.settledAt < config.hoverSettleMs) return;
     if (now - this.lastOcrAt < this.currentInterval(config)) return;
@@ -459,6 +482,19 @@ export class ItemDetector extends EventEmitter {
     this.lastOcrAt = now;
     this.lastOcrPoint = cursor;
     void this.detect(cursor, false);
+  }
+
+  /**
+   * Le curseur a-t-il assez bouge pour qu'il faille reverifier l'objet survole ?
+   *
+   * Le point de reference est celui de la derniere identification, remis a jour
+   * meme lorsqu'elle confirme l'objet deja affiche : la fenetre de tolerance
+   * glisse donc avec le curseur au lieu de rester ancree a la premiere
+   * detection.
+   */
+  private shouldRecheck(cursor: Point): boolean {
+    if (!this.shownAtPoint) return true;
+    return distance(cursor, this.shownAtPoint) > RECHECK_DISTANCE_PX;
   }
 
   /**
