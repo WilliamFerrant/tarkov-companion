@@ -155,8 +155,28 @@ const PROXIMITY_FALLOFF = 0.35;
 /** Cote du bloc de sous-echantillonnage a 1080p. */
 const BLOCK_AT_1080P = 4;
 
-/** Ecart horizontal maximal rebouche par la fermeture, en cellules. */
-const CLOSE_GAP_X = 6;
+/**
+ * Ecart horizontal maximal rebouche par la fermeture, en cellules.
+ *
+ * Ramene de 6 a 3. La fermeture sert a reconnecter la boite par-dessus les
+ * espaces laisses par le texte — mais elle franchit tout aussi bien la **bordure
+ * de l'infobulle**, et la soude alors a ce qui la jouxte. Quand ce voisin est
+ * une grande zone sombre, typiquement des cases d'inventaire vides, la
+ * composante fusionnee a pour plus grand rectangle plein cette zone vide : elle
+ * est ecartee par les bornes de taille, et l'infobulle disparait avec elle.
+ *
+ * Constate en jeu sur « Key tool » place dans le POUCH, contre une grande zone
+ * vide : aucune detection. Le meme objet ailleurs, entoure d'icones plus
+ * claires, etait reconnu immediatement.
+ *
+ * 3 cellules valent ~12 px a 1080p, soit largement un espace entre deux mots.
+ * Le sous-echantillonnage par moyenne de blocs a de toute facon deja fondu le
+ * texte dans le fond : la fermeture n'a plus qu'un role d'appoint.
+ *
+ * Les valeurs 2, 3 et 4 passent toutes les cinq cas de `npm run test:ocr` — le
+ * choix repose donc sur ce raisonnement, non sur une mesure qui les separerait.
+ */
+const CLOSE_GAP_X = 3;
 /** Idem verticalement. Plus petit : le texte tient sur peu de lignes. */
 const CLOSE_GAP_Y = 3;
 
@@ -244,8 +264,18 @@ export function locateTooltip(
 
     labels.fill(0);
     for (const component of findComponents(mask, labels, stack, gridWidth, gridHeight)) {
-      // Retire les appendices (icones sombres touchant l'infobulle) pour ne
-      // garder que le corps rectangulaire plein.
+      // Un seul rectangle par composante : le plus grand rectangle plein.
+      //
+      // L'enumeration de **tous** les rectangles maximaux a ete essayee, pour
+      // rattraper le cas d'une infobulle collee a une grande zone sombre. Elle
+      // ne peut pas fonctionner, et pour une raison de fond : quand l'infobulle
+      // touche du sombre de tous cotes, son rectangle exact n'est pas maximal —
+      // on peut toujours l'etendre — donc il ne figure pas dans l'enumeration.
+      // Elle n'ajoutait que des boites debordantes ou tranchantes, et le cadrage
+      // tombait de 5/5 a 1/5.
+      //
+      // Le defaut est en amont, dans la fusion des composantes : voir
+      // `CLOSE_GAP_X`.
       const trimmed = largestSolidRect(labels, gridWidth, component);
       if (!trimmed) continue;
 
@@ -260,57 +290,38 @@ export function locateTooltip(
       if (rect.width < limits.minWidth || rect.width > limits.maxWidth) continue;
       if (rect.height < limits.minHeight || rect.height > limits.maxHeight) continue;
 
-      // Plein a 100 % par construction : `largestSolidRect` ne renvoie que des
-      // rectangles entierement remplis. Le seuil de remplissage d'autrefois est
-      // donc devenu inutile — et le critere est desormais strictement plus fort
-      // qu'un simple taux : une silhouette d'objet ne contient aucun grand
-      // rectangle plein, elle est ecartee par les bornes dimensionnelles.
-      const fillRatio = 1;
-
       // Le curseur est dans la boite : c'est le panneau de fond, pas l'infobulle.
       if (containsPoint(options.cursorX, options.cursorY, rect)) continue;
 
       const distance = distanceToRect(options.cursorX, options.cursorY, rect);
       if (distance > limits.maxDistance) continue;
 
-      // Une infobulle contient forcement du texte.
-      //
-      // Sans ce filtre, un bloc sombre uniforme de l'inventaire l'emporte des que
-      // l'infobulle est etroite : le score privilegie la largeur, et un nom court
-      // n'en offre que peu. Constate en jeu sur « Key tool » — zone retenue
-      // 130x45, remplissage 100 %, et l'etape suivante rendait « aucun texte
-      // detecte dans la zone ». Le cycle etait perdu alors que l'infobulle etait
-      // bien presente, quelques dizaines de pixels a cote.
-      //
-      // Le test est place ici, et non apres coup : rejeter le meilleur candidat
-      // trop tard revient a ne rien detecter, alors que le suivant etait peut-etre
-      // le bon.
-      if (!containsText(bgra, width, height, rect)) continue;
+      // Une infobulle contient forcement du texte. Sans ce critere, un bloc
+      // sombre uniforme l'emporte des que l'infobulle est etroite — le score
+      // privilegiant la largeur, un nom court n'en offre que peu. Constate en
+      // jeu sur « Key tool » : zone retenue 130x45, remplissage 100 %, puis
+      // « aucun texte detecte dans la zone ».
+      if (textCoverage(bgra, width, height, rect) === 0) continue;
 
-      // L'infobulle est la boite pleine **collee** au curseur. Le remplissage
-      // ecarte les composantes etendues mais creuses (grille, decor) ; la
-      // decroissance exponentielle avec la distance ecarte les panneaux
-      // d'interface, qui sont plus grands mais plus loin.
+      // L'infobulle est la boite pleine **collee** au curseur. La decroissance
+      // exponentielle avec la distance ecarte les panneaux d'interface, plus
+      // grands mais plus loin : a `maxDistance`, une boite doit etre ~17 fois
+      // plus large que l'infobulle pour la supplanter.
       //
-      // Ponderer par la seule aire revenait a elire systematiquement le plus
-      // grand rectangle sombre du voisinage. Avec ce facteur, une boite situee a
-      // `maxDistance` doit etre ~17 fois plus grande que l'infobulle pour la
-      // supplanter, au lieu de gagner des qu'elle est un peu plus large.
-      // Score sur la **largeur** seule, jamais sur l'aire.
-      //
-      // Ponderer par l'aire faisait gagner tout rectangle plus haut, alors que la
-      // hauteur d'une infobulle est deja bornee par `MIN_HEIGHT` / `MAX_HEIGHT` :
-      // elle n'apporte donc aucune information supplementaire, et elle permettait
-      // a un compteur de durabilite (200x80) de battre une infobulle courte mais
-      // correcte (97x40) — observe en jeu sur « Chainlet ».
-      //
-      // La largeur, elle, discrimine reellement : une infobulle est un bandeau
-      // large et bas, la plupart des fragments d'interface sont compacts.
+      // Score sur la **largeur** seule, jamais sur l'aire. Ponderer par l'aire
+      // faisait gagner tout rectangle plus haut, alors que la hauteur d'une
+      // infobulle est deja bornee par `MIN_HEIGHT` / `MAX_HEIGHT` : elle
+      // n'apporte aucune information, et elle permettait a un compteur de
+      // durabilite (200x80) de battre une infobulle courte mais correcte
+      // (97x40) — observe en jeu sur « Chainlet ».
       const proximity = Math.exp(-distance / (PROXIMITY_FALLOFF * limits.maxDistance));
-      const score = rect.width * fillRatio * proximity;
+      const score = rect.width * proximity;
       if (score > bestScore) {
         bestScore = score;
-        best = { rect, fillRatio, threshold };
+        // Plein a 100 % par construction : `largestSolidRect` ne rend que des
+        // rectangles entierement remplis. Le taux de remplissage d'autrefois est
+        // donc devenu une constante, conservee pour le panneau debug.
+        best = { rect, fillRatio: 1, threshold };
       }
     }
   }
@@ -373,21 +384,31 @@ const MIN_TEXT_SEPARATION = 25;
 const MIN_TEXT_COVERAGE = 0.012;
 const MAX_TEXT_COVERAGE = 0.45;
 
-/** Un pixel sur combien, par axe, est examine par `containsText`. */
+/** Un pixel sur combien, par axe, est examine par `textCoverage`. */
 const TEXT_SAMPLE_STEP = 2;
 
+
 /**
- * Le rectangle contient-il du texte ?
+ * Part de la surface occupee par du texte, ou 0 si le rectangle n'en contient
+ * pas.
  *
- * Deux populations de luminance nettement separees, la plus claire couvrant une
- * petite part de la surface. C'est la signature d'un nom d'objet sur son fond,
+ * Deux populations de luminance nettement separees, la minoritaire couvrant une
+ * petite part de la surface : c'est la signature d'un nom d'objet sur son fond,
  * et ce que ne presente ni un aplat sombre, ni un degrade.
+ *
+ * La valeur, et pas seulement le verdict, sert au score. Depuis que tous les
+ * rectangles pleins d'une composante sont proposes, il faut departager des
+ * boites emboitees qui contiennent toutes le meme texte : la bonne est la plus
+ * serree autour de lui, donc celle dont la couverture est la plus forte. Un
+ * critere binaire les acceptait toutes, et le score, fonde sur la seule largeur,
+ * elisait la plus large — celle qui debordait sur le fond, ou pire, une bande
+ * qui tranchait le texte en deux.
  *
  * Travaille sur les pixels d'origine, un sur deux par axe : la grille
  * sous-echantillonnee du localisateur a justement efface le texte par moyennage,
  * elle ne peut donc pas servir ici.
  */
-function containsText(bgra: Buffer, width: number, height: number, rect: Rect): boolean {
+function textCoverage(bgra: Buffer, width: number, height: number, rect: Rect): number {
   const x1 = Math.min(width, rect.x + rect.width);
   const y1 = Math.min(height, rect.y + rect.height);
 
@@ -403,7 +424,7 @@ function containsText(bgra: Buffer, width: number, height: number, rect: Rect): 
       total++;
     }
   }
-  if (total < 64) return false;
+  if (total < 64) return 0;
 
   // Seuil d'Otsu : la frontiere qui separe au mieux les deux populations, quelle
   // que soit leur proportion. Un percentile echouerait ici, le texte occupant
@@ -436,16 +457,17 @@ function containsText(bgra: Buffer, width: number, height: number, rect: Rect): 
     weight += histogram[value]!;
     low += value * histogram[value]!;
   }
-  if (weight === 0 || weight === total) return false;
+  if (weight === 0 || weight === total) return 0;
 
   const meanLow = low / weight;
   const meanHigh = (sum - low) / (total - weight);
-  if (Math.abs(meanHigh - meanLow) < MIN_TEXT_SEPARATION) return false;
+  if (Math.abs(meanHigh - meanLow) < MIN_TEXT_SEPARATION) return 0;
 
   // La population minoritaire est le texte, quel que soit son cote : Tarkov
   // ecrit clair sur sombre, mais rien n'interdit l'inverse sur un fond clair.
   const coverage = Math.min(weight, total - weight) / total;
-  return coverage >= MIN_TEXT_COVERAGE && coverage <= MAX_TEXT_COVERAGE;
+  if (coverage < MIN_TEXT_COVERAGE || coverage > MAX_TEXT_COVERAGE) return 0;
+  return coverage;
 }
 
 /** Marque les cellules recouvertes par la zone a ignorer (la carte de prix). */
@@ -532,38 +554,73 @@ function buildThresholdLadder(darkest: number, median: number): number[] {
   return ladder;
 }
 
-interface TrimmedBox {
-  minX: number;
-  maxX: number;
-  minY: number;
-  maxY: number;
-  /** Nombre de cellules de la composante contenues dans la boite rognee. */
-  area: number;
-}
-
 /**
- * Plus grand rectangle **entierement plein** contenu dans la composante.
+ * Enumere les rectangles **entierement pleins** maximaux de la composante.
  *
  * C'est ce qui separe l'infobulle des icones sombres auxquelles elle touche.
  * L'infobulle se superpose a l'inventaire : ses bords touchent forcement les
  * icones situees derriere, et l'etiquetage en composantes connexes les fusionne
  * en une seule forme, souvent en L. Le corps rectangulaire plein de l'infobulle
- * est alors le plus grand rectangle plein de cette forme.
+ * est alors l'un des rectangles pleins de cette forme.
  *
- * Remplace un rognage glouton qui retirait les lignes de bord avant les
- * colonnes. Sur une forme en L, cet ordre fixe convergeait vers le mauvais bras :
- * face a une icone plus haute que l'infobulle, il mangeait les lignes de
- * l'infobulle — texte compris — avant d'avoir retire les colonnes de l'icone.
- * Le nom devenait illisible alors que la boite etait parfaitement detectee.
+ * Pourquoi enumerer, et non retenir le plus grand
+ * -----------------------------------------------
+ * La version precedente ne rendait qu'un rectangle par composante : le plus
+ * grand. Cela suffit tant que l'infobulle domine sa composante — mais elle peut
+ * toucher une **grande zone sombre**, par exemple les cases vides de
+ * l'inventaire, qui sont aussi noires qu'elle. La composante fusionnee a alors
+ * pour plus grand rectangle cette zone vide, laquelle est ecartee par les bornes
+ * de taille ; et l'infobulle, pourtant dans la meme composante, n'etait jamais
+ * evaluee.
+ *
+ * Constate en jeu sur « Key tool » place dans le POUCH, contre une grande zone
+ * vide : aucune detection du tout. Le meme objet ailleurs, sur des icones plus
+ * claires, etait reconnu immediatement — le defaut ne dependait pas de l'objet
+ * mais de son voisinage. Meme cause pour la « zone noire » relevee plus tot a
+ * cote de l'infobulle du FN SCAR-H.
+ *
+ * L'algorithme visitait deja tous ces rectangles ; il n'en gardait qu'un. Les
+ * exposer tous ne coute donc rien de plus, et laisse l'appelant appliquer ses
+ * criteres — taille, distance, presence de texte — a chacun.
  *
  * Algorithme du plus grand rectangle dans un histogramme, applique ligne par
  * ligne : `heights[i]` compte les cellules pleines consecutives se terminant a
  * la ligne courante, et une pile monotone croissante donne, en un seul parcours,
- * le plus grand rectangle s'appuyant sur cette ligne. Cout total O(largeur x
- * hauteur) de la boite englobante — du meme ordre que le rognage qu'il remplace,
- * mais exact au lieu d'approche.
+ * tous les rectangles maximaux s'appuyant sur cette ligne. Cout total O(largeur
+ * x hauteur) de la boite englobante.
  */
-function largestSolidRect(labels: Int32Array, width: number, component: Component): TrimmedBox | null {
+interface TrimmedBox {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+}
+
+function largestSolidRect(
+  labels: Int32Array,
+  width: number,
+  component: Component,
+): TrimmedBox | null {
+  let best: TrimmedBox | null = null;
+  let bestArea = 0;
+
+  forEachSolidRect(labels, width, component, (minX, maxX, minY, maxY) => {
+    const area = (maxX - minX + 1) * (maxY - minY + 1);
+    if (area > bestArea) {
+      bestArea = area;
+      best = { minX, maxX, minY, maxY };
+    }
+  });
+
+  return best;
+}
+
+function forEachSolidRect(
+  labels: Int32Array,
+  width: number,
+  component: Component,
+  visit: (minX: number, maxX: number, minY: number, maxY: number) => void,
+): void {
   const { minX, maxX, minY, maxY, label } = component;
   const span = maxX - minX + 1;
 
@@ -571,9 +628,6 @@ function largestSolidRect(labels: Int32Array, width: number, component: Componen
   // Piles paralleles : hauteur de la barre, et abscisse ou elle commence.
   const stackHeight = new Int32Array(span + 1);
   const stackLeft = new Int32Array(span + 1);
-
-  let best: TrimmedBox | null = null;
-  let bestArea = 0;
 
   for (let y = minY; y <= maxY; y++) {
     const row = y * width;
@@ -591,16 +645,10 @@ function largestSolidRect(labels: Int32Array, width: number, component: Componen
         top--;
         const barHeight = stackHeight[top]!;
         left = stackLeft[top]!;
-        const area = barHeight * (i - left);
-        if (area > bestArea) {
-          bestArea = area;
-          best = {
-            minX: minX + left,
-            maxX: minX + i - 1,
-            minY: y - barHeight + 1,
-            maxY: y,
-            area,
-          };
+        // Un rectangle degenere (une seule ligne ou colonne) n'est jamais une
+        // infobulle : inutile de le proposer.
+        if (barHeight > 1 && i - left > 1) {
+          visit(minX + left, minX + i - 1, y - barHeight + 1, y);
         }
       }
       if (height > 0) {
@@ -610,10 +658,6 @@ function largestSolidRect(labels: Int32Array, width: number, component: Componen
       }
     }
   }
-
-  // Un rectangle degenere (une seule ligne ou colonne) n'est jamais une infobulle.
-  if (!best || best.maxX <= best.minX || best.maxY <= best.minY) return null;
-  return best;
 }
 
 /**
