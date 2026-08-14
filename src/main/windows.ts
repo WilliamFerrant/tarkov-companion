@@ -52,6 +52,25 @@ const OVERLAY_DEFAULT_HEIGHT = 130;
 const CARD_OFFSET_X = 14;
 const CARD_OFFSET_Y = 22;
 
+/**
+ * Ecart minimal entre l'infobulle du jeu et la carte.
+ *
+ * Le localisateur ne cadre que la ligne du nom, alors que la boite dessinee par
+ * le jeu est un peu plus haute : cet ecart absorbe la difference, sans quoi la
+ * carte mordrait encore sur son bord.
+ */
+const TOOLTIP_GAP = 10;
+
+/** Les deux rectangles se recouvrent-ils ? */
+function overlaps(
+  a: { x: number; y: number; width: number; height: number },
+  b: { x: number; y: number; width: number; height: number },
+): boolean {
+  return (
+    a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
+  );
+}
+
 const rendererDir = path.join(__dirname, '..', 'renderer');
 const preloadDir = path.join(__dirname, '..', 'preload');
 
@@ -234,7 +253,19 @@ export function setOverlayHeight(height: number, config: AppConfig): void {
  * Elle ne bascule a gauche que pres du bord droit de l'ecran, et ne remonte que
  * du strict necessaire pres du bord bas.
  */
-export function showOverlayAt(cursor: { x: number; y: number }, config: AppConfig): void {
+export function showOverlayAt(
+  cursor: { x: number; y: number },
+  config: AppConfig,
+  /**
+   * Rectangle de l'infobulle du jeu, en pixels logiques.
+   *
+   * La carte ne doit jamais le recouvrir — pas par elegance, mais parce que
+   * l'analyse suivante lirait alors une infobulle amputee. Constate en jeu :
+   * « zone lue 95x40, texte OCR "t injector" », le debut du nom etant cache par
+   * la carte.
+   */
+  avoid: { x: number; y: number; width: number; height: number } | null = null,
+): void {
   const window = overlayWindow;
   if (!window || window.isDestroyed()) return;
 
@@ -258,6 +289,18 @@ export function showOverlayAt(cursor: { x: number; y: number }, config: AppConfi
   let x = cursor.x + CARD_OFFSET_X;
   let y = cursor.y + CARD_OFFSET_Y;
 
+  // --- Descendre sous l'infobulle du jeu ---
+  //
+  // « L'infobulle est toujours au-dessus du curseur » etait une generalisation
+  // abusive : pres du bas de l'ecran, Tarkov la place **a cote**, a hauteur du
+  // curseur. La carte, posee en bas a droite, atterrissait alors dessus et en
+  // cachait le debut — l'analyse suivante ne lisait plus que « t injector ».
+  //
+  // On se contente donc de passer sous son bord bas quand il descend plus bas
+  // que le decalage nominal. Dans le cas courant, l'infobulle etant au-dessus,
+  // ce maximum ne change rien.
+  if (avoid) y = Math.max(y, avoid.y + avoid.height + TOOLTIP_GAP);
+
   // --- Bord droit : bascule a gauche du curseur ---
   //
   // Symetrique de la position nominale, et non un simple recalage contre le bord
@@ -280,6 +323,17 @@ export function showOverlayAt(cursor: { x: number; y: number }, config: AppConfi
   // conserve, ce qui est precisement ce qu'on attend d'une infobulle.
   if (y + height > area.y + area.height) {
     y = area.y + area.height - height;
+  }
+
+  // --- Dernier recours : se decaler lateralement ---
+  //
+  // Tout en bas de l'ecran, la remontee ci-dessus peut ramener la carte sur
+  // l'infobulle qu'on venait d'eviter. Il n'y a alors plus de place verticale :
+  // on passe a cote, de preference a gauche, ou l'infobulle laisse le plus
+  // souvent la place puisqu'elle se developpe vers la droite.
+  if (avoid && overlaps({ x, y, width, height }, avoid)) {
+    const toLeft = avoid.x - width - TOOLTIP_GAP;
+    x = toLeft >= area.x ? toLeft : avoid.x + avoid.width + TOOLTIP_GAP;
   }
 
   // Garde-fou final : la carte ne doit jamais sortir de la zone de travail.
