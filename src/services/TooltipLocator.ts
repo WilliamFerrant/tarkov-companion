@@ -148,10 +148,28 @@ const MAX_HEIGHT = 68;
 const MAX_CURSOR_DISTANCE = 260;
 /**
  * Raideur de la decroissance du score avec la distance au curseur, en fraction
- * de `MAX_CURSOR_DISTANCE`. 0,35 donne un facteur ~0,9 pour une boite collee au
- * curseur et ~0,06 a la distance limite.
+ * de `MAX_CURSOR_DISTANCE`.
+ *
+ * Resserree de 0,35 a 0,20. Le score vaut `largeur x proximite` : une bande
+ * large et lointaine peut donc battre une infobulle etroite et collee au
+ * curseur, ce qui est exactement l'inverse du signal recherche.
+ *
+ * Constate en jeu sur un objet place en haut d'un conteneur : la **barre de
+ * titre** du conteneur, 705x65 px a ~120 px du curseur, etait retenue a la place
+ * de l'infobulle.
+ *
+ *                   largeur   proximite   score
+ *   barre de titre     705      0,318       224
+ *   infobulle          170      0,875       149
+ *
+ * A 0,20 les memes candidats donnent 95 et 134 : l'ancrage au curseur redevient
+ * decisif, ce qu'il aurait toujours du etre. Une boite collee au curseur garde un
+ * facteur ~0,9, une boite a la distance limite tombe a ~0,007.
+ *
+ * Les cinq cas de `npm run test:ocr` passent encore a 0,15, ce qui laisse de la
+ * marge sous la valeur retenue.
  */
-const PROXIMITY_FALLOFF = 0.35;
+const PROXIMITY_FALLOFF = 0.2;
 /** Cote du bloc de sous-echantillonnage a 1080p. */
 const BLOCK_AT_1080P = 4;
 
