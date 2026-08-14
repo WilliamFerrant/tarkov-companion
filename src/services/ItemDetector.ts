@@ -679,9 +679,14 @@ export class ItemDetector extends EventEmitter {
       // Le cadrage est la premiere chose a verifier quand l'item affiche ne
       // correspond pas : une zone bien plus large que l'infobulle signale que le
       // localisateur a pris un panneau d'interface pour cible.
+      // La zone exclue est journalisee : quand la carte finit par etre relue a la
+      // place de l'infobulle, seul ce champ distingue « exclusion absente » de
+       // « exclusion mal placee ».
+      const excluded = this.deps.getOverlayBounds();
       log.debug(
         `  zone lue ${shot.rect.width}x${shot.rect.height} px en ${shot.rect.x},${shot.rect.y} ` +
           `(remplissage ${shot.locate ? Math.round(shot.locate.fillRatio * 100) + '%' : 'n/a'}) — ` +
+          `carte exclue ${excluded ? `${excluded.width}x${excluded.height} en ${excluded.x},${excluded.y}` : 'aucune'} — ` +
           `texte OCR ${JSON.stringify(ocr.text)}`,
       );
 

@@ -225,6 +225,23 @@ export function locateTooltip(
     }
     closeGaps(mask, gridWidth, gridHeight);
 
+    // Reappliquer l'exclusion **apres** la fermeture morphologique.
+    //
+    // La fermeture dilate puis erode : elle rebouche les trous entoures de
+    // cellules actives. Or la carte de prix est posee sur l'inventaire, sombre
+    // lui aussi — la dilatation franchissait donc la zone exclue depuis ses
+    // bords et la remplissait entierement. L'exclusion etait annulee juste apres
+    // avoir ete posee, et la carte redevenait un candidat.
+    //
+    // Symptome en jeu : carte a gauche de l'infobulle, zone retenue « 57 159 P »,
+    // c'est-a-dire la ligne de prix de la carte elle-meme au lieu du nom de
+    // l'objet survole.
+    if (options.excludeRect) {
+      for (let i = 0; i < mask.length; i++) {
+        if (excluded[i] === 1) mask[i] = 0;
+      }
+    }
+
     labels.fill(0);
     for (const component of findComponents(mask, labels, stack, gridWidth, gridHeight)) {
       // Retire les appendices (icones sombres touchant l'infobulle) pour ne
