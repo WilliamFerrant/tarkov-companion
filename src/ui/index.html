@@ -174,6 +174,18 @@
         <h2>Apparence</h2>
         <div class="card">
           <div class="field">
+            <label for="overlayPersistent">Fenetre overlay permanente</label>
+            <input id="overlayPersistent" type="checkbox" data-config="overlayPersistent" />
+            <p class="hint">
+              La fenetre reste affichee en continu au lieu d'apparaitre a chaque
+              objet. Windows fait basculer le jeu entre affichage direct et
+              composition a chaque apparition, et c'est ce basculement qui
+              saccade. Ce mode l'echange contre un cout constant : quelques
+              images par seconde en moins, mais plus d'a-coups. Redemarrage
+              necessaire.
+            </p>
+          </div>
+          <div class="field">
             <label for="overlayFollowCursor">La carte suit le curseur</label>
             <input id="overlayFollowCursor" type="checkbox" data-config="overlayFollowCursor" />
             <p class="hint">

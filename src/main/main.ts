@@ -177,7 +177,7 @@ function setConfig(patch: Partial<AppConfig>): AppConfig {
 
   // Desactiver l'overlay doit masquer la carte immediatement, sans attendre
   // le prochain tick de la boucle de detection.
-  if (patch.overlayEnabled === false) hideOverlay();
+  if (patch.overlayEnabled === false) hideOverlay(next);
 
   if (patch.hotkeys) {
     const failed = registerHotkeys(next, hotkeyHandlers);
@@ -332,7 +332,7 @@ async function bootstrap(): Promise<void> {
   });
   detector.on('follow', (cursor: { x: number; y: number }) => followCursor(cursor, config.get()));
   detector.on('hide', () => {
-    hideOverlay();
+    hideOverlay(config.get());
     send(getOverlayWindow(), IPC.OVERLAY_HIDE);
   });
   detector.on('debug', (frame: DebugFrame) => send(getSettingsWindow(), IPC.DEBUG_FRAME, frame));

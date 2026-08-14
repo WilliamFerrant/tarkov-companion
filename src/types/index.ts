@@ -221,6 +221,27 @@ export interface AppConfig {
    */
   overlayTransparent: boolean;
   /**
+   * La fenetre overlay reste visible en permanence, et couvre l'ecran.
+   *
+   * Un jeu en borderless est presente par Windows en **flip direct** : le jeu
+   * ecrit sa frame, l'ecran l'affiche, le DWM ne touche a rien. Des qu'une
+   * fenetre au premier plan recouvre la sienne, Windows abandonne ce chemin et
+   * repasse en composition complete.
+   *
+   * Ce n'est pas la presence de la fenetre qui coute le plus, c'est le
+   * **basculement**. Constate en jeu, une fois toutes les autres causes
+   * eliminees : la saccade tombe exactement a l'instant ou la carte apparait,
+   * puis tout est fluide tant qu'elle reste affichee, et recommence a la
+   * suivante.
+   *
+   * Ce mode echange les a-coups contre un cout constant : le jeu s'installe une
+   * fois en composition et n'en sort plus. On y perd quelques images par
+   * seconde en permanence, on n'y subit plus de micro-blocages. Selon la
+   * machine et la sensibilite, l'un ou l'autre gene davantage — d'ou le
+   * reglage plutot qu'un choix impose.
+   */
+  overlayPersistent: boolean;
+  /**
    * Acceleration materielle de Chromium.
    *
    * Coupee un temps sur l'hypothese — fausse — que la presence d'Electron
@@ -280,6 +301,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   showIcon: true,
   overlayFollowCursor: false,
   overlayTransparent: true,
+  overlayPersistent: false,
   hardwareAcceleration: true,
   overlayOpacity: 0.95,
   overlayScale: 1,

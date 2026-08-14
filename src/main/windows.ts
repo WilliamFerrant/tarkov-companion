@@ -201,7 +201,10 @@ export function getOverlayWindow(): BrowserWindow | null {
  * survol (utile pour d'eventuels effets visuels) tout en laissant passer les clics.
  */
 export function applyClickThrough(window: BrowserWindow, clickThrough: boolean): void {
-  window.setIgnoreMouseEvents(clickThrough, { forward: true });
+  // `forward: false` : le renderer n'a aucun effet de survol a produire, et la
+  // fenetre couvre tout l'ecran en mode permanent — lui transmettre chaque
+  // mouvement de souris serait du travail pur perte, a la cadence du curseur.
+  window.setIgnoreMouseEvents(clickThrough, { forward: false });
 }
 
 /** Memorise la hauteur mesuree cote renderer et redimensionne la fenetre. */
@@ -212,6 +215,10 @@ export function setOverlayHeight(height: number, config: AppConfig): void {
   const clamped = Math.max(60, Math.min(700, Math.round(height)));
   if (clamped === overlayHeight) return;
   overlayHeight = clamped;
+  // En mode permanent la fenetre couvre l'ecran : sa taille ne depend pas de
+  // celle de la carte, et la redimensionner ferait justement le travail qu'on
+  // cherche a supprimer.
+  if (config.overlayPersistent) return;
   overlayWindow.setBounds({
     ...overlayWindow.getBounds(),
     // La marge fait partie de la fenetre : sans elle, la carte serait rognee des
@@ -274,14 +281,26 @@ export function showOverlayAt(
   // Avec le suivi actif, la fenetre est plus grande que la carte et ne bouge
   // plus qu'ici : la carte glisse ensuite **a l'interieur** de cette marge. Sans
   // suivi, la marge se reduit a l'ombre du liseré et la fenetre epouse la carte.
-  const pad = overlayPad(config);
-  const frame = {
-    x: Math.round(Math.max(area.x, Math.min(x - pad, area.x + area.width - (width + pad * 2)))),
-    y: Math.round(Math.max(area.y, Math.min(y - pad, area.y + area.height - (height + pad * 2)))),
-    width: width + pad * 2,
-    height: height + pad * 2,
-  };
-  window.setBounds(frame);
+  // Bounds reels de la carte : c'est eux, et non ceux de la fenetre, qu'il faut
+  // exclure de la recherche d'infobulle. La distinction devient essentielle en
+  // mode permanent, ou la fenetre couvre tout l'ecran.
+  cardBounds = { x: Math.round(x), y: Math.round(y), width, height };
+  cardVisible = true;
+
+  const frame = config.overlayPersistent
+    ? coverDisplay(window, display)
+    : (() => {
+        const pad = overlayPad(config);
+        const bounds = {
+          x: Math.round(Math.max(area.x, Math.min(x - pad, area.x + area.width - (width + pad * 2)))),
+          y: Math.round(Math.max(area.y, Math.min(y - pad, area.y + area.height - (height + pad * 2)))),
+          width: width + pad * 2,
+          height: height + pad * 2,
+        };
+        window.setBounds(bounds);
+        return bounds;
+      })();
+
   sendFollow(window, x - frame.x, y - frame.y);
   if (!window.isVisible()) window.showInactive();
 
@@ -350,6 +369,45 @@ export function followCursor(cursor: { x: number; y: number }, config: AppConfig
   sendFollow(window, Math.round(wantedX - x), Math.round(wantedY - y));
 }
 
+/**
+ * Mode permanent : la fenetre couvre l'ecran et n'est deplacee qu'au changement
+ * de moniteur.
+ *
+ * Pourquoi ce mode existe
+ * -----------------------
+ * Un jeu en borderless est presente par Windows en **flip direct** : le jeu
+ * ecrit sa frame, l'ecran l'affiche, le DWM ne touche a rien. Des qu'une fenetre
+ * au premier plan recouvre la sienne, Windows abandonne ce chemin et repasse en
+ * composition complete.
+ *
+ * Ce n'est pas la presence de la fenetre qui coute le plus, c'est le
+ * **basculement**. Constate en jeu : la saccade tombe exactement a l'instant ou
+ * la carte apparait, puis tout est fluide tant qu'elle reste affichee, et
+ * recommence a la suivante. Afficher et masquer la fenetre a chaque objet
+ * survole, c'est imposer ce basculement plusieurs fois par minute.
+ *
+ * En mode permanent, la fenetre reste visible en continu : le jeu s'installe une
+ * fois pour toutes en composition et n'en sort plus. Le cout devient constant —
+ * quelques images par seconde en moins — au lieu d'a-coups. C'est un echange,
+ * pas une suppression : a chacun de juger ce qui gene le plus.
+ */
+function coverDisplay(
+  window: BrowserWindow,
+  display: Electron.Display,
+): { x: number; y: number; width: number; height: number } {
+  const area = display.workArea;
+  const current = window.getBounds();
+  const same =
+    current.x === area.x &&
+    current.y === area.y &&
+    current.width === area.width &&
+    current.height === area.height;
+  // Ne redimensionner qu'au changement d'ecran : tout `setBounds` sur une
+  // fenetre au premier plan provoque precisement le travail qu'on evite.
+  if (!same) window.setBounds(area);
+  return area;
+}
+
 /** Transmet au renderer la position de la carte dans la fenetre. */
 function sendFollow(window: BrowserWindow, x: number, y: number): void {
   if (window.isDestroyed()) return;
@@ -371,8 +429,16 @@ function sendFollow(window: BrowserWindow, x: number, y: number): void {
  */
 const OVERLAY_EXCLUSION_GRACE_MS = 400;
 
-/** Derniers bounds occupes par la carte, et instant de son masquage. */
-let lastOverlayBounds: { x: number; y: number; width: number; height: number } | null = null;
+/**
+ * Bounds de la carte a l'ecran, et instant de son masquage.
+ *
+ * Suivis a part des bounds de la **fenetre**, qui ne coincident avec eux qu'en
+ * mode a la demande. En mode permanent, la fenetre couvre tout l'ecran : s'en
+ * servir comme zone d'exclusion reviendrait a exclure l'ecran entier, et plus
+ * aucune infobulle ne serait jamais detectee.
+ */
+let cardBounds: { x: number; y: number; width: number; height: number } | null = null;
+let cardVisible = false;
 let overlayHiddenAt = 0;
 
 /**
@@ -381,23 +447,28 @@ let overlayHiddenAt = 0;
  * `null` au-dela du delai de grace. Voir `DetectorDeps`.
  */
 export function getVisibleOverlayBounds(): { x: number; y: number; width: number; height: number } | null {
-  if (!overlayWindow || overlayWindow.isDestroyed()) return null;
-  if (overlayWindow.isVisible()) {
-    lastOverlayBounds = overlayWindow.getBounds();
-    return lastOverlayBounds;
-  }
-  if (lastOverlayBounds && Date.now() - overlayHiddenAt < OVERLAY_EXCLUSION_GRACE_MS) {
-    return lastOverlayBounds;
-  }
+  if (!overlayWindow || overlayWindow.isDestroyed() || !cardBounds) return null;
+  if (cardVisible) return cardBounds;
+  if (Date.now() - overlayHiddenAt < OVERLAY_EXCLUSION_GRACE_MS) return cardBounds;
   return null;
 }
 
-export function hideOverlay(): void {
-  if (overlayWindow && !overlayWindow.isDestroyed() && overlayWindow.isVisible()) {
-    // Memorise avant de masquer : apres coup, `getBounds()` reste valable mais
-    // l'instant du masquage est ce qui borne le delai de grace.
-    lastOverlayBounds = overlayWindow.getBounds();
-    overlayHiddenAt = Date.now();
+/**
+ * Masque la carte.
+ *
+ * En mode permanent, la fenetre reste visible : seul le renderer efface la
+ * carte, sur `OVERLAY_HIDE` envoye en parallele par le process principal. C'est
+ * tout l'interet du mode — ne jamais faire basculer Windows entre presentation
+ * directe et composition.
+ */
+export function hideOverlay(config?: AppConfig): void {
+  if (!overlayWindow || overlayWindow.isDestroyed()) return;
+  if (!cardVisible) return;
+
+  cardVisible = false;
+  overlayHiddenAt = Date.now();
+
+  if (!config?.overlayPersistent && overlayWindow.isVisible()) {
     overlayWindow.hide();
   }
 }
