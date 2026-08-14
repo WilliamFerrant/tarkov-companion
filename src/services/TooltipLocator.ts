@@ -537,7 +537,32 @@ interface Component {
 
 /**
  * Construit l'echelle de seuils balayee, du plus sombre vers la mediane.
- * Un pas fin est inutile : deux seuils voisins produisent le meme masque.
+ *
+ * Espacement **quadratique**, et non lineaire : les paliers se resserrent vers le
+ * noir. Ce n'est pas un raffinement, c'est ce qui rend certaines infobulles
+ * detectables.
+ *
+ * Mesure sur un echantillon preleve en jeu, la ou la detection echouait
+ * systematiquement :
+ *
+ *   boite infobulle   mediane   0   (noir pur, texte jusqu'a 201)
+ *   grille vide       mediane   6
+ *   fenetre entiere   mediane  19
+ *
+ * L'infobulle est donc **plus sombre que ce qui l'entoure**, et non l'inverse
+ * comme le supposait la conception d'origine. Pour l'isoler il faut un seuil a
+ * 1, 2 ou 3 : au-dela, la grille vide entre dans le masque et fusionne avec
+ * elle.
+ *
+ * L'echelle lineaire donnait `[3, 5, 8, 11, 14, 16]`, dont le plancher `>= 4`
+ * retirait encore le 3. Le seuil le plus bas etait donc 5 — au-dessus de la
+ * grille vide. Aucun palier ne pouvait separer les deux, quel que soit le
+ * nombre de paliers, puisqu'ils etaient tous places dans la moitie haute de la
+ * plage ou tout est deja fusionne.
+ *
+ * L'espacement quadratique donne `[1, 2, 3, 6, 10, 14]` sur la meme scene : les
+ * trois premiers isolent l'infobulle, les trois derniers couvrent les cas ou
+ * elle est plus claire que son fond. Meme nombre d'etiquetages, donc meme cout.
  */
 function buildThresholdLadder(darkest: number, median: number): number[] {
   const span = median - darkest;
@@ -547,9 +572,12 @@ function buildThresholdLadder(darkest: number, median: number): number[] {
   const STEPS = 6;
   const ladder: number[] = [];
   for (let i = 1; i <= STEPS; i++) {
-    const value = Math.round(darkest + (span * i) / (STEPS + 1));
+    const fraction = i / (STEPS + 1);
+    const value = Math.round(darkest + span * fraction * fraction);
+    // Un seuil a 0 ne selectionne que le noir absolu, souvent rien du tout ; le
+    // plancher a 1 est le premier qui puisse contenir une boite.
     // Deduplique : sur une scene peu contrastee plusieurs pas se confondent.
-    if (value >= 4 && ladder[ladder.length - 1] !== value) ladder.push(value);
+    if (value >= 1 && ladder[ladder.length - 1] !== value) ladder.push(value);
   }
   return ladder;
 }
