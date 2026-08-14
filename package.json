@@ -38,8 +38,14 @@
   "build": {
     "appId": "local.tarkov.price.hover",
     "productName": "TarkovPriceHover",
+    "directories": {
+      "output": "release"
+    },
     "files": [
       "dist/**/*",
+      "!dist/native/**",
+      "!dist/selftest/**",
+      "!dist/tools/**",
       "assets/**/*",
       "package.json"
     ],
@@ -56,7 +62,15 @@
     "win": {
       "target": [
         "nsis"
-      ]
+      ],
+      "icon": "assets/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Tarkov Price Hover"
     }
   }
 }

@@ -301,7 +301,11 @@ export const DEFAULT_CONFIG: AppConfig = {
   showIcon: true,
   overlayFollowCursor: false,
   overlayTransparent: true,
-  overlayPersistent: false,
+  // Actif par defaut : c'est le seul reglage qui ait supprime les saccades, une
+  // fois toutes les autres causes eliminees par la mesure. Le cout — quelques
+  // images par seconde en continu — est preferable aux micro-blocages qu'il
+  // remplace. Voir `overlayPersistent`.
+  overlayPersistent: true,
   hardwareAcceleration: true,
   overlayOpacity: 0.95,
   overlayScale: 1,

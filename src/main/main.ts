@@ -14,10 +14,31 @@
  *   5. Detection : demarree seulement quand des prix sont disponibles.
  */
 
-import { app, ipcMain, screen, shell, type BrowserWindow } from 'electron';
-import { readFileSync } from 'node:fs';
+/**
+ * Refuse de demarrer en mode « Electron comme Node ».
+ *
+ * Avec `ELECTRON_RUN_AS_NODE`, `require('electron')` ne rend pas le module mais
+ * un chemin : `app` vaut alors `undefined`, et la premiere ligne qui s'en sert
+ * leve une `TypeError` **avant** l'initialisation de Chromium. Le processus
+ * disparait sans fenetre, sans journal et avec le code 0 — indiscernable d'un
+ * executable corrompu, et constate en testant le premier build empaquete.
+ *
+ * Le terminal integre de VS Code pose cette variable, qui est ensuite heritee
+ * par tout ce qu'on lance depuis lui. `scripts/start.mjs` la retire pour le
+ * developpement ; ce garde-fou couvre l'executable installe.
+ */
+if (process.env.ELECTRON_RUN_AS_NODE) {
+  process.stderr.write(
+    'ELECTRON_RUN_AS_NODE est defini : Electron demarrerait comme un simple Node.\n' +
+      'Lancez l application depuis le menu Demarrer ou un terminal ordinaire.\n',
+  );
+  process.exit(1);
+}
+
+import { app, dialog, ipcMain, screen, shell, type BrowserWindow } from 'electron';
+import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import type { AppConfig, CacheStatus, DebugFrame, GameMode, PriceSummary } from '../types/index';
+import { APP_NAME, type AppConfig, type CacheStatus, type DebugFrame, type GameMode, type PriceSummary } from '../types/index';
 import { IPC } from '../types/ipc';
 import { initLogger, createLogger, getLogDir, setVerbose } from '../services/Logger';
 import { ConfigStore } from '../services/ConfigStore';
@@ -50,10 +71,35 @@ import {
  * demarrait entierement malgre le verrou (constate en conditions reelles).
  * `app.exit(0)` termine immediatement le process.
  */
+/**
+ * Fixe le nom de l'application, donc le dossier de donnees.
+ *
+ * Sans cela, Electron le deduit de son contexte : `package.json` en
+ * developpement, mais `productName` une fois empaquete. Les deux ne coincident
+ * pas, et l'executable installe repartirait sur un dossier vide — configuration
+ * perdue, catalogue de prix a retelecharger, cache OCR reconstruit.
+ *
+ * **Avant** le verrou d'instance : celui-ci est associe au dossier de donnees.
+ * Pose apres, il porterait sur un autre dossier que celui reellement utilise, et
+ * une instance de developpement n'exclurait pas une instance empaquetee.
+ */
+app.setName(APP_NAME);
+
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) {
-  // eslint-disable-next-line no-console
-  console.log('Une instance de Tarkov Price Hover est deja en cours. Arret.');
+  // Une application de zone de notification n'a pas de console : ce message
+  // n'irait nulle part. Le fichier, lui, se lit apres coup — sans quoi un refus
+  // de verrou se manifeste par un processus qui disparait sans rien dire, ce qui
+  // est indiscernable d'un plantage au demarrage.
+  try {
+    writeFileSync(
+      path.join(app.getPath('userData'), 'demarrage-refuse.txt'),
+      `${new Date().toISOString()}\nUne instance est deja en cours : ${app.getPath('userData')}\n`,
+      'utf8',
+    );
+  } catch {
+    /* rien de plus a tenter */
+  }
   app.exit(0);
 }
 
@@ -364,8 +410,32 @@ app.on('second-instance', () => showSettings());
 if (hasSingleInstanceLock) {
   app.whenReady().then(bootstrap).catch((err) => {
     log.error('echec du demarrage', err);
+    reportFatal(err);
     app.quit();
   });
+}
+
+/**
+ * Ecrit une erreur de demarrage sur disque et la montre a l'utilisateur.
+ *
+ * `bootstrap` initialise le journal ; une exception levee **avant** ce point
+ * n'avait donc nulle part ou aller. Dans une application empaquetee, sans
+ * console attachee, elle disparaissait entierement : le processus s'arretait
+ * avec le code 0 et sans la moindre trace — constate en testant le premier
+ * executable produit.
+ *
+ * L'ecriture directe, sans passer par le logger, est justement ce qui rend ce
+ * chemin fiable : il doit fonctionner alors que rien d'autre n'est pret.
+ */
+function reportFatal(err: unknown): void {
+  const message = err instanceof Error ? `${err.message}\n${err.stack ?? ''}` : String(err);
+  try {
+    const file = path.join(app.getPath('userData'), 'demarrage-echec.txt');
+    writeFileSync(file, `${new Date().toISOString()}\n${message}\n`, 'utf8');
+    dialog.showErrorBox('Tarkov Price Hover', `Echec du demarrage.\n\n${message}\n\nDetail : ${file}`);
+  } catch {
+    /* dernier recours : il n'y a plus rien a tenter */
+  }
 }
 
 // L'application vit dans le tray : fermer toutes les fenetres ne doit pas quitter.
