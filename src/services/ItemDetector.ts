@@ -528,6 +528,8 @@ export class ItemDetector extends EventEmitter {
     const collecting = config.collectCalibration;
     /** Rectangle de l'infobulle en pixels logiques, pour ne pas la recouvrir. */
     let tooltipRect: { x: number; y: number; width: number; height: number } | null = null;
+    /** Ce cycle n'a rien observe et ne doit rien publier au panneau debug. */
+    let silent = false;
     const frame: DebugFrame = {
       timestamp: Date.now(),
       mode: config.captureMode,
@@ -552,6 +554,18 @@ export class ItemDetector extends EventEmitter {
       }
       if (!forced && config.onlyWhenGameFocused && !this.deps.foreground.isGameFocused(config.gameProcessName)) {
         frame.skippedReason = `jeu non au premier plan (actif : ${this.deps.foreground.foregroundProcess || 'inconnu'})`;
+        // Ce cycle n'a rien observe : il ne doit rien publier.
+        //
+        // Regarder le panneau debug suppose d'ouvrir la fenetre de reglages, ce
+        // qui retire le premier plan au jeu. La boucle continuait de tourner,
+        // abandonnait aussitot, et **ecrasait le resultat que le bouton
+        // « Analyser maintenant » venait de produire**. Le panneau affichait donc
+        // un verdict d'abandon a cote des images d'une analyse anterieure : deux
+        // informations vraies separement, contradictoires ensemble.
+        //
+        // Le cout n'est pas theorique — ce panneau a servi a diagnostiquer une
+        // detection qui, d'apres les journaux du meme instant, fonctionnait.
+        silent = true;
         return;
       }
 
@@ -716,7 +730,7 @@ export class ItemDetector extends EventEmitter {
       log.error('cycle de detection en erreur', err);
     } finally {
       this.busy = false;
-      if (debug) this.emit('debug', frame);
+      if (debug && !silent) this.emit('debug', frame);
     }
   }
 

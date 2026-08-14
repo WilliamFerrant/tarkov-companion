@@ -33,6 +33,8 @@
  */
 
 import { desktopCapturer, screen, nativeImage, type NativeImage } from 'electron';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 import type { CaptureRegion } from '../types/index';
 import { locateTooltip, type LocateResult, type Rect } from './TooltipLocator';
 import { FrameGrabber, type Frame } from './FrameGrabber';
@@ -124,6 +126,15 @@ export interface CaptureSettings {
   captureRegion: CaptureRegion;
   /** Voir `AppConfig.useCaptureStream`. */
   useCaptureStream: boolean;
+  /**
+   * Voir `AppConfig.debugMode`.
+   *
+   * Commande l'ecriture des echantillons d'echec, et **pas** `wantPreview` : ce
+   * dernier exige la fenetre de reglages ouverte, ce qui retire le premier plan
+   * au jeu et empeche justement toute analyse. Les echecs a diagnostiquer se
+   * produisent en jeu, fenetre de reglages fermee.
+   */
+  debugMode: boolean;
 }
 
 /** Decoupage des temps, pour savoir quelle etape coute reellement. */
@@ -178,11 +189,16 @@ export type CaptureOutcome =
  */
 const FALLBACK_MAX_WIDTH = 2560;
 
+/** Plafond d'echantillons d'echec ecrits par session. Voir dumpFailure. */
+const MAX_FAILURE_DUMPS = 12;
+
 export class ScreenCapture {
   private readonly frames: FrameGrabber;
   private readonly regions: RegionGrabber;
+  /** Nombre d'echantillons d'echec deja ecrits. Voir dumpFailure. */
+  private failureDumps = 0;
 
-  constructor(userDataPath: string) {
+  constructor(private readonly userDataPath: string) {
     this.frames = new FrameGrabber(userDataPath);
     this.regions = new RegionGrabber(userDataPath);
 
@@ -239,7 +255,14 @@ export class ScreenCapture {
     // definition. Le mode manuel definit sa propre zone, que l'appelant peut
     // avoir placee n'importe ou.
     if (settings.captureMode === 'auto' && !wantFullSearch) {
-      const viaRegion = await this.captureViaRegion(display, cursor, wantPreview, excludeDip, timings);
+      const viaRegion = await this.captureViaRegion(
+        settings,
+        display,
+        cursor,
+        wantPreview,
+        excludeDip,
+        timings,
+      );
       if (viaRegion) return finish(viaRegion);
     }
 
@@ -357,6 +380,7 @@ export class ScreenCapture {
    *          d'ecrans non geree, ou capture refusee.
    */
   private async captureViaRegion(
+    settings: CaptureSettings,
     display: Electron.Display,
     cursor: { x: number; y: number },
     wantPreview: boolean,
@@ -446,6 +470,16 @@ export class ScreenCapture {
     timings.locateMs = Date.now() - locateStarted;
 
     if (!framed.ok) {
+      // Echec de cadrage en mode debug : la fenetre de recherche est ecrite sur
+      // disque, en pleine resolution.
+      //
+      // L'apercu du panneau debug est reduit a 640 px et encode en base64 : bon
+      // pour l'oeil, inutilisable pour rejouer le localisateur dessus. Or les
+      // echecs restants sont **intermittents** — meme objet, meme position,
+      // detecte une fois sur cent — et une scene synthetique ne les reproduit
+      // pas. Sans les pixels exacts qui echouent, chaque correctif est une
+      // hypothese de plus.
+      if (settings.debugMode) this.dumpFailure(window, framed.search);
       return { ok: false, reason: framed.reason, timings, previewPng: framed.previewPng };
     }
 
@@ -487,6 +521,35 @@ export class ScreenCapture {
       searchFull: null,
       timings,
     };
+  }
+
+  /**
+   * Ecrit sur disque la fenetre de recherche d'un cadrage rate.
+   *
+   * Ces fichiers sont le materiau qui manque pour traiter les echecs
+   * intermittents : ils permettent de rejouer le localisateur sur les pixels
+   * exacts qui ont echoue, au lieu de raisonner sur une scene synthetique qui,
+   * par construction, ne reproduit que les cas deja compris.
+   *
+   * Plafonne a `MAX_FAILURE_DUMPS` fichiers par session : le but est d'obtenir
+   * quelques echantillons representatifs, pas de remplir le disque pendant qu'un
+   * joueur balaie son stash.
+   */
+  private dumpFailure(window: NativeImage, search: Rect | null): void {
+    if (this.failureDumps >= MAX_FAILURE_DUMPS) return;
+    try {
+      const dir = path.join(this.userDataPath, 'debug');
+      mkdirSync(dir, { recursive: true });
+      const name = `echec-${Date.now()}.png`;
+      writeFileSync(path.join(dir, name), window.toPNG());
+      this.failureDumps++;
+      log.info(
+        `cadrage rate : fenetre de recherche ecrite dans ${path.join(dir, name)}` +
+          `${search ? ` (${search.width}x${search.height})` : ''}`,
+      );
+    } catch {
+      /* le diagnostic est un confort : son echec ne doit rien interrompre */
+    }
   }
 
   /**
