@@ -28,7 +28,7 @@
 import { app, nativeImage } from 'electron';
 import { readdirSync, existsSync } from 'node:fs';
 import path from 'node:path';
-import { locateTooltip } from '../services/TooltipLocator';
+import { locateTooltip, newLocateStats } from '../services/TooltipLocator';
 
 /** Doit rester aligne sur `ScreenCapture`. */
 const SEARCH_BACKWARD = 90;
@@ -71,28 +71,39 @@ function main(): void {
     const cursorX = SEARCH_BACKWARD * sizeScale;
     const cursorY = SEARCH_ABOVE * sizeScale;
 
+    const stats = newLocateStats();
     const started = process.hrtime.bigint();
     const result = locateTooltip(image.toBitmap(), size.width, size.height, {
       cursorX,
       cursorY,
       sizeScale,
       excludeRect: null,
+      stats,
     });
     const elapsed = Number(process.hrtime.bigint() - started) / 1e6;
+
+    // Le detail des rejets est ce qui distingue « aucun rectangle plein n'a
+    // survecu aux bornes » de « le bon candidat existait mais a perdu au
+    // score ». Ces deux situations appellent des correctifs opposes.
+    const detail =
+      `${stats.candidates} candidats : ` +
+      `${stats.rejectedBySize} taille, ` +
+      `${stats.rejectedByCursorInside} curseur dedans, ` +
+      `${stats.rejectedByDistance} distance, ` +
+      `${stats.rejectedByNoText} sans texte, ` +
+      `${stats.accepted} retenus`;
 
     if (result) {
       located++;
       console.log(
-        `[TROUVE]    ${name}  ${size.width}x${size.height} @${sizeScale.toFixed(2)}  ` +
-          `-> ${result.rect.width}x${result.rect.height} en ${result.rect.x},${result.rect.y} ` +
-          `(seuil ${result.threshold})  ${elapsed.toFixed(1)} ms`,
+        `[TROUVE] ${name}  -> ${result.rect.width}x${result.rect.height} en ` +
+          `${result.rect.x},${result.rect.y} (seuil ${result.threshold})  ${elapsed.toFixed(1)} ms`,
       );
     } else {
-      console.log(
-        `[RIEN]      ${name}  ${size.width}x${size.height} @${sizeScale.toFixed(2)}  ` +
-          `curseur ${Math.round(cursorX)},${Math.round(cursorY)}  ${elapsed.toFixed(1)} ms`,
-      );
+      console.log(`[RIEN]   ${name}  ${elapsed.toFixed(1)} ms`);
     }
+    console.log(`         ${detail}`);
+    for (const reject of stats.rejects) console.log(`           ecarte : ${reject}`);
   }
 
   // Volontairement sans verdict global : ces echantillons sont des **echecs**,

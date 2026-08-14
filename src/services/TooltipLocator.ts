@@ -83,6 +83,42 @@ export interface LocateOptions {
    * l'infobulle du jeu, et l'OCR relirait ses propres libelles.
    */
   excludeRect?: Rect | null;
+  /**
+   * Compteurs de rejet, remplis si fourni.
+   *
+   * Sans eux, un echec de localisation est muet : impossible de distinguer
+   * « aucun rectangle plein n'a survecu aux bornes de taille » de « le bon
+   * candidat existait mais a perdu au score ». Ces deux situations appellent des
+   * correctifs opposes, et les confondre a coute plusieurs iterations.
+   */
+  stats?: LocateStats;
+}
+
+/** Voir `LocateOptions.stats`. Un compteur par etape de rejet. */
+export interface LocateStats {
+  /** Rectangles pleins proposes par l'etiquetage, toutes passes confondues. */
+  candidates: number;
+  rejectedBySize: number;
+  rejectedByCursorInside: number;
+  rejectedByDistance: number;
+  rejectedByNoText: number;
+  /** Candidats ayant passe tous les filtres. */
+  accepted: number;
+  /** Description des rectangles ecartes, pour lecture humaine. Borne a 8. */
+  rejects: string[];
+}
+
+/** Compteurs a zero, prets a etre remplis. */
+export function newLocateStats(): LocateStats {
+  return {
+    candidates: 0,
+    rejectedBySize: 0,
+    rejectedByCursorInside: 0,
+    rejectedByDistance: 0,
+    rejectedByNoText: 0,
+    accepted: 0,
+    rejects: [],
+  };
 }
 
 export interface LocateResult {
@@ -305,21 +341,51 @@ export function locateTooltip(
         height: (trimmed.maxY - trimmed.minY + 1) * block,
       };
 
-      if (rect.width < limits.minWidth || rect.width > limits.maxWidth) continue;
-      if (rect.height < limits.minHeight || rect.height > limits.maxHeight) continue;
+      const describe = (): string => `${rect.width}x${rect.height} en ${rect.x},${rect.y}`;
+      if (options.stats) options.stats.candidates++;
+
+      if (
+        rect.width < limits.minWidth ||
+        rect.width > limits.maxWidth ||
+        rect.height < limits.minHeight ||
+        rect.height > limits.maxHeight
+      ) {
+        if (options.stats) {
+          options.stats.rejectedBySize++;
+          if (options.stats.rejects.length < 8) {
+            options.stats.rejects.push(`taille ${describe()}`);
+          }
+        }
+        continue;
+      }
 
       // Le curseur est dans la boite : c'est le panneau de fond, pas l'infobulle.
-      if (containsPoint(options.cursorX, options.cursorY, rect)) continue;
+      if (containsPoint(options.cursorX, options.cursorY, rect)) {
+        if (options.stats) options.stats.rejectedByCursorInside++;
+        continue;
+      }
 
       const distance = distanceToRect(options.cursorX, options.cursorY, rect);
-      if (distance > limits.maxDistance) continue;
+      if (distance > limits.maxDistance) {
+        if (options.stats) {
+          options.stats.rejectedByDistance++;
+          if (options.stats.rejects.length < 8) {
+            options.stats.rejects.push(`distance ${describe()} a ${Math.round(distance)} px`);
+          }
+        }
+        continue;
+      }
 
       // Une infobulle contient forcement du texte. Sans ce critere, un bloc
       // sombre uniforme l'emporte des que l'infobulle est etroite — le score
       // privilegiant la largeur, un nom court n'en offre que peu. Constate en
       // jeu sur « Key tool » : zone retenue 130x45, remplissage 100 %, puis
       // « aucun texte detecte dans la zone ».
-      if (textCoverage(bgra, width, height, rect) === 0) continue;
+      if (textCoverage(bgra, width, height, rect) === 0) {
+        if (options.stats) options.stats.rejectedByNoText++;
+        continue;
+      }
+      if (options.stats) options.stats.accepted++;
 
       // L'infobulle est la boite pleine **collee** au curseur. La decroissance
       // exponentielle avec la distance ecarte les panneaux d'interface, plus

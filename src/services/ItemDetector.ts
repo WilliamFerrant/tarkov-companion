@@ -421,10 +421,27 @@ export class ItemDetector extends EventEmitter {
     if (distance(cursor, this.lastCursor) > config.cursorMoveThresholdPx) {
       this.lastCursor = cursor;
       this.settledAt = now;
-      // Nouvelle position : les deux budgets repartent a zero.
+      // Nouvelle position : le budget d'OCR repart a zero.
       if (!this.lastOcrPoint || distance(cursor, this.lastOcrPoint) > config.cursorMoveThresholdPx) {
         this.ocrAttemptsAtSpot = 0;
       }
+
+      // La veille aussi repart a zero.
+      //
+      // Le ralentissement sert a ne pas tourner a plein regime quand il n'y a
+      // rien a trouver — en raid, ou l'inventaire ferme. Mais les echecs
+      // s'accumulaient d'un survol au suivant : arriver sur un objet avec le
+      // compteur deja au plafond imposait jusqu'a deux secondes avant le premier
+      // regard, alors que l'infobulle, elle, sortait dans la demi-seconde.
+      //
+      // Releve en jeu : « passage en veille » puis « reprise du regime nominal
+      // apres 21 cycles » **pendant** que l'utilisateur survolait des objets.
+      //
+      // Un deplacement du curseur est precisement le signal qu'il se passe
+      // quelque chose : chaque nouvelle position merite donc un regard rapide.
+      // Sans souris qui bouge — en raid — le compteur n'est jamais remis a zero
+      // et la veille tient, ce qui est son role.
+      this.consecutiveMisses = 0;
     }
 
     // --- Masquage de la carte affichee ---
