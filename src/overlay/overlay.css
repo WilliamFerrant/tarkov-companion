@@ -1,0 +1,205 @@
+/*
+ * overlay.css
+ * -----------
+ * Style de la carte de prix, calque sur l'infobulle d'Escape from Tarkov :
+ * texte clair sur fond quasi noir, bordure fine grise, aucun ornement. La carte
+ * apparait juste sous l'infobulle du jeu — deux styles differents cote a cote
+ * donneraient l'impression de deux applications sans rapport.
+ *
+ * Compacte par principe : le nom de l'objet n'est pas repris (l'infobulle du jeu
+ * l'affiche deja), il ne reste que les chiffres. Seul le prix Flea garde une
+ * teinte doree, comme les montants du jeu.
+ *
+ * Contraintes specifiques a un overlay de jeu :
+ *   - Le `body` est totalement transparent : la fenetre l'est aussi, le moindre
+ *     fond opaque produirait un rectangle noir par-dessus le jeu.
+ *   - Aucune animation, aucune transition, aucun `backdrop-filter`. Tout effet
+ *     recompose en continu coute des FPS au jeu, ce qui est exactement ce qu'on
+ *     cherche a eviter.
+ *   - Les tailles derivent de `--scale`, pilote depuis la configuration.
+ */
+
+:root {
+  --scale: 1;
+  --opacity: 0.95;
+
+  /* Releves sur l'infobulle du jeu : fond quasi noir, bordure grise discrete. */
+  --bg: #0b0b0b;
+  --border: #3d3d3d;
+  --separator: #262626;
+  --text: #e6e6e6;
+  --text-dim: #8f8f8f;
+  --accent: #d8c78a;
+  --positive: #7bbd6a;
+  --negative: #c9705f;
+  --warn: #c9a227;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  /* Transparence obligatoire : c'est ce qui laisse voir le jeu derriere. */
+  background: transparent;
+  overflow: hidden;
+  font-family: 'Bahnschrift', 'Segoe UI Semibold', 'Segoe UI', system-ui, sans-serif;
+  font-size: calc(12px * var(--scale));
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  /* La carte ne doit jamais capter la souris, meme click-through desactive. */
+  user-select: none;
+  cursor: default;
+}
+
+.card {
+  /*
+   * Positionnee librement dans la fenetre : le suivi du curseur se fait par
+   * `transform`, pilote depuis le process principal. La fenetre, elle, ne bouge
+   * qu'a l'apparition de la carte.
+   */
+  position: absolute;
+  top: 0;
+  left: 0;
+  /* Meme largeur que `OVERLAY_WIDTH` cote principal : la fenetre etant plus
+     grande que la carte, celle-ci ne peut plus tirer sa largeur du conteneur. */
+  width: calc(170px * var(--scale));
+  /* Promet au compositeur que seule la position changera. */
+  will-change: transform;
+  opacity: var(--opacity);
+  background: var(--bg);
+  /* Bordure uniforme, comme l'infobulle du jeu : pas de liseré d'accent. */
+  border: 1px solid var(--border);
+  padding: calc(7px * var(--scale)) calc(10px * var(--scale));
+  display: flex;
+  flex-direction: column;
+  gap: calc(5px * var(--scale));
+}
+
+.card[hidden] {
+  display: none;
+}
+
+/* --- En-tete : icone et badges seulement, jamais le nom --- */
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: calc(6px * var(--scale));
+}
+
+/* Sans en-tete visible (ni icone ni badge), la marge du conteneur suffit. */
+.head:empty {
+  display: none;
+}
+
+.icon {
+  width: calc(26px * var(--scale));
+  height: calc(26px * var(--scale));
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.icon[hidden] {
+  display: none;
+}
+
+.badge {
+  font-size: calc(9px * var(--scale));
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0 calc(4px * var(--scale));
+  border: 1px solid var(--separator);
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.badge-warn {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+.badge[hidden] {
+  display: none;
+}
+
+/* --- Lignes de prix --- */
+
+.rows {
+  display: flex;
+  flex-direction: column;
+}
+
+.row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: calc(10px * var(--scale));
+  padding: calc(1px * var(--scale)) 0;
+}
+
+.row dt {
+  color: var(--text-dim);
+  font-size: calc(11px * var(--scale));
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.value {
+  /* Chiffres tabulaires : les montants restent alignes d'une carte a l'autre. */
+  font-variant-numeric: tabular-nums;
+  font-size: calc(12px * var(--scale));
+  font-weight: 600;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.value-accent {
+  color: var(--accent);
+  font-size: calc(14px * var(--scale));
+}
+
+.value-empty {
+  color: var(--text-dim);
+  font-weight: 400;
+}
+
+/* --- Pied --- */
+
+.foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: calc(8px * var(--scale));
+  border-top: 1px solid var(--separator);
+  padding-top: calc(4px * var(--scale));
+  font-size: calc(9px * var(--scale));
+  color: var(--text-dim);
+}
+
+.profit {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.profit-positive {
+  color: var(--positive);
+}
+
+.profit-negative {
+  color: var(--negative);
+}
+
+.confidence {
+  opacity: 0.6;
+  white-space: nowrap;
+}
+
+/* Match peu sur : signale visuellement que l'OCR n'est pas certain de l'item. */
+.confidence-low {
+  color: var(--warn);
+  opacity: 1;
+}

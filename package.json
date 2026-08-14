@@ -1,0 +1,60 @@
+{
+  "name": "tarkov-price-hover",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Overlay Windows affichant le prix des items d'Escape from Tarkov au survol (OCR + API tarkov.dev). Usage personnel.",
+  "main": "dist/main/main.js",
+  "author": "personal",
+  "license": "UNLICENSED",
+  "scripts": {
+    "build": "node build.mjs",
+    "watch": "node build.mjs --watch",
+    "start": "npm run build && node scripts/start.mjs",
+    "dev": "npm run build && node scripts/start.mjs --dev",
+    "typecheck": "tsc --noEmit",
+    "verify-api": "node scripts/verify-api.mjs",
+    "test": "npm run test:match && npm run test:ocr",
+    "test:match": "npm run build && node dist/tools/match-selftest.js",
+    "test:ocr": "npm run build && node scripts/start.mjs --entry dist/tools/ocr-selftest.js",
+    "test:region": "npm run build && node scripts/start.mjs --entry dist/tools/region-selftest.js",
+    "test:icons": "npm run build && node scripts/start.mjs --entry dist/tools/icon-selftest.js",
+    "test:grid": "npm run build && node scripts/start.mjs --entry dist/tools/grid-selftest.js",
+    "icons": "node scripts/make-icons.mjs",
+    "pack": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder"
+  },
+  "dependencies": {
+    "tesseract.js": "^7.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "electron": "^43.0.0",
+    "electron-builder": "^26.0.0",
+    "esbuild": "^0.28.0",
+    "typescript": "^5.9.0"
+  },
+  "build": {
+    "appId": "local.tarkov.price.hover",
+    "productName": "TarkovPriceHover",
+    "files": [
+      "dist/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "dist/native",
+        "to": "native"
+      }
+    ],
+    "asarUnpack": [
+      "node_modules/tesseract.js/**",
+      "node_modules/tesseract.js-core/**"
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    }
+  }
+}

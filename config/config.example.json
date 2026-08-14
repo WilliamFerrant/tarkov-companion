@@ -1,0 +1,88 @@
+{
+  "_comment": [
+    "Exemple de configuration. Le fichier reellement utilise se trouve dans",
+    "%APPDATA%/tarkov-price-hover/config.json et est cree automatiquement au",
+    "premier lancement. Copiez ce fichier a cet emplacement pour partir de ces",
+    "valeurs. Toute cle absente est comblee par la valeur par defaut, et les",
+    "valeurs hors bornes sont ramenees dans leur intervalle au chargement.",
+    "Les cles commencant par _ sont ignorees."
+  ],
+
+  "_comment_dataSource": [
+    "auto    = API JSON en premier, repli sur GraphQL. Recommande.",
+    "json    = https://json.tarkov.dev uniquement (la source vivante).",
+    "graphql = https://api.tarkov.dev/graphql uniquement.",
+    "L'API GraphQL est hors service depuis juillet 2026 (the-hideout/tarkov-api#474)."
+  ],
+  "dataSource": "auto",
+
+  "_comment_gameMode": "regular = PvP, pve = mode PvE. Les prix different reellement entre les deux.",
+  "gameMode": "regular",
+
+  "_comment_refresh": "Periode de rafraichissement des prix depuis tarkov.dev, en minutes (1 a 240).",
+  "refreshIntervalMinutes": 12,
+
+  "overlayEnabled": true,
+
+  "_comment_clickThrough": "true = les clics traversent l'overlay et atteignent le jeu. A laisser a true en partie.",
+  "clickThrough": true,
+
+  "debugMode": false,
+
+  "_comment_focus": "N'analyse l'ecran que si le process ci-dessous est au premier plan.",
+  "onlyWhenGameFocused": true,
+  "gameProcessName": "EscapeFromTarkov",
+
+  "_comment_captureMode": [
+    "auto   = l'infobulle est localisee automatiquement a chaque analyse.",
+    "         Rien a calibrer, toutes resolutions, et le cadrage suit l'infobulle",
+    "         ou qu'elle apparaisse. C'est le mode recommande.",
+    "manual = rectangle fixe defini par captureRegion. Filet de securite si la",
+    "         detection automatique echoue sur votre configuration."
+  ],
+  "captureMode": "auto",
+
+  "_comment_captureRegion": [
+    "Utilise uniquement si captureMode vaut manual.",
+    "Rectangle analyse par l'OCR, en pixels, relatif au curseur.",
+    "offsetX/offsetY = coin superieur gauche par rapport au curseur.",
+    "Volontairement large et centre : l'infobulle Tarkov peut apparaitre",
+    "au-dessus, en dessous, a gauche ou a droite du curseur."
+  ],
+  "captureRegion": {
+    "offsetX": -260,
+    "offsetY": -140,
+    "width": 700,
+    "height": 300
+  },
+
+  "_comment_perf": [
+    "hoverSettleMs      : immobilite du curseur requise avant de lancer un OCR.",
+    "minOcrIntervalMs   : intervalle minimal entre deux OCR (garde-fou CPU).",
+    "cursorMoveThresholdPx : deplacement considere comme un mouvement reel."
+  ],
+  "hoverSettleMs": 120,
+  "minOcrIntervalMs": 220,
+  "cursorMoveThresholdPx": 6,
+
+  "_comment_matchThreshold": "Score minimal (0.3 a 0.99). 0.68 par defaut : en dessous, du texte d interface quelconque passe pour un item.",
+  "matchThreshold": 0.68,
+
+  "_comment_minPriceFilter": "Masque les items dont la valeur de reference est inferieure. 0 = desactive.",
+  "minPriceFilter": 0,
+
+  "_comment_autoHide": "Delai avant disparition automatique de la carte, en ms.",
+  "autoHideMs": 8000,
+
+  "showIcon": true,
+  "overlayOpacity": 0.95,
+  "overlayScale": 1,
+  "_comment_overlayScale": "Deduite de la hauteur de l ecran au premier lancement (1.35 en 1440p, 2 en 4K).",
+
+  "_comment_hotkeys": "Syntaxe d'accelerateur Electron. Un raccourci deja pris par une autre application est refuse.",
+  "hotkeys": {
+    "toggleOverlay": "Control+Shift+P",
+    "toggleDebug": "Control+Shift+D",
+    "openSettings": "Control+Shift+O"
+  }
+}

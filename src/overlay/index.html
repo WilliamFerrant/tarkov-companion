@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <!--
+      CSP stricte : la fenetre ne charge aucun script distant. Seules les images
+      HTTPS sont autorisees, pour les icones d'items servies par tarkov.dev.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; img-src https: data:; style-src 'self'; script-src 'self';"
+    />
+    <title>Tarkov Price Hover — overlay</title>
+    <link rel="stylesheet" href="overlay.css" />
+  </head>
+  <body>
+    <!--
+      La carte est masquee par defaut (`hidden`). Le process principal masque
+      egalement la fenetre entiere : le double masquage evite qu'un frame
+      residuel ne clignote a l'ecran lors du repositionnement.
+    -->
+    <!--
+      Le nom de l'objet n'est volontairement pas repris : l'infobulle du jeu
+      l'affiche deja, juste au-dessus de la carte. Le repeter doublait la hauteur
+      pour zero information. L'icone suffit a confirmer d'un coup d'oeil que la
+      lecture porte bien sur l'objet survole.
+    -->
+    <main id="card" class="card" hidden>
+      <header class="head">
+        <img id="icon" class="icon" alt="" hidden />
+        <span id="size" class="badge"></span>
+        <span id="noflea" class="badge badge-warn" hidden>Hors Flea</span>
+      </header>
+
+      <dl class="rows">
+        <div class="row">
+          <dt>Flea 24h</dt>
+          <dd id="avg" class="value value-accent"></dd>
+        </div>
+        <div class="row">
+          <dt>Dernier bas</dt>
+          <dd id="low" class="value"></dd>
+        </div>
+        <div class="row">
+          <dt id="trader-label">Trader</dt>
+          <dd id="trader" class="value"></dd>
+        </div>
+        <div class="row">
+          <dt>Par slot</dt>
+          <dd id="slot" class="value"></dd>
+        </div>
+      </dl>
+
+      <footer class="foot">
+        <span id="profit" class="profit"></span>
+        <span id="confidence" class="confidence"></span>
+      </footer>
+    </main>
+
+    <script src="overlay.js"></script>
+  </body>
+</html>

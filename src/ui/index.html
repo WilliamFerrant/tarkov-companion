@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; img-src data:; style-src 'self'; script-src 'self';"
+    />
+    <title>Tarkov Price Hover</title>
+    <link rel="stylesheet" href="settings.css" />
+  </head>
+  <body>
+    <nav class="nav">
+      <div class="brand">
+        <span class="brand-mark"></span>
+        <span>Price Hover</span>
+      </div>
+      <button class="nav-item is-active" data-section="general">General</button>
+      <button class="nav-item" data-section="detection">Detection</button>
+      <button class="nav-item" data-section="appearance">Apparence</button>
+      <button class="nav-item" data-section="hotkeys">Raccourcis</button>
+      <button class="nav-item" data-section="debug">Debug</button>
+      <div class="nav-spacer"></div>
+      <div id="status-pill" class="pill">chargement…</div>
+    </nav>
+
+    <main class="content">
+      <!-- ------------------------------------------------------------ -->
+      <section class="section is-active" data-section="general">
+        <h2>General</h2>
+
+        <div class="card">
+          <h3>Donnees de prix</h3>
+          <p class="hint">
+            Source : APIs publiques de tarkov.dev, sans cle. Les prix sont mis en
+            cache localement et restent utilisables hors ligne.
+            <strong>L'API GraphQL est hors service depuis juillet 2026</strong>
+            (issue the-hideout/tarkov-api#474) ; l'API JSON est la voie vivante,
+            celle qu'utilise le site tarkov.dev lui-meme.
+          </p>
+          <div class="field">
+            <label for="dataSource">Source des donnees</label>
+            <select id="dataSource" data-config="dataSource">
+              <option value="auto">Automatique — JSON, repli GraphQL (recommande)</option>
+              <option value="json">JSON uniquement</option>
+              <option value="graphql">GraphQL uniquement (hors service)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="gameMode">Mode de jeu</label>
+            <select id="gameMode" data-config="gameMode">
+              <option value="regular">PvP (regular)</option>
+              <option value="pve">PvE</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="refreshIntervalMinutes">Rafraichissement (minutes)</label>
+            <input id="refreshIntervalMinutes" type="number" min="1" max="240" data-config="refreshIntervalMinutes" />
+          </div>
+          <div class="field">
+            <label for="minPriceFilter">Masquer sous (roubles)</label>
+            <input id="minPriceFilter" type="number" min="0" step="1000" data-config="minPriceFilter" />
+          </div>
+          <div class="cache-box">
+            <div id="cache-info" class="cache-info">—</div>
+            <button id="btn-refresh" class="btn">Rafraichir maintenant</button>
+          </div>
+          <div id="cache-error" class="alert" hidden></div>
+        </div>
+
+        <div class="card">
+          <h3>Overlay</h3>
+          <label class="check">
+            <input type="checkbox" data-config="overlayEnabled" />
+            <span>Overlay actif</span>
+          </label>
+          <label class="check">
+            <input type="checkbox" data-config="clickThrough" />
+            <span>Transparent aux clics (recommande en partie)</span>
+          </label>
+          <label class="check">
+            <input type="checkbox" data-config="onlyWhenGameFocused" />
+            <span>N'analyser que si Tarkov est au premier plan</span>
+          </label>
+          <div class="field">
+            <label for="gameProcessName">Nom du process du jeu</label>
+            <input id="gameProcessName" type="text" data-config="gameProcessName" />
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Fichiers</h3>
+          <div class="row-buttons">
+            <button id="btn-logs" class="btn btn-ghost">Ouvrir les logs</button>
+            <button id="btn-config" class="btn btn-ghost">Ouvrir config.json</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ------------------------------------------------------------ -->
+      <section class="section" data-section="detection">
+        <h2>Detection</h2>
+
+        <div class="card">
+          <h3>Cadrage de la zone analysee</h3>
+          <div class="field">
+            <label for="captureMode">Mode</label>
+            <select id="captureMode" data-config="captureMode">
+              <option value="auto">Automatique (recommande)</option>
+              <option value="manual">Zone fixe</option>
+            </select>
+          </div>
+          <p class="hint">
+            En mode <strong>automatique</strong>, l'infobulle est localisee a chaque
+            analyse : elle est reconnue comme le grand rectangle uniforme sombre le
+            plus proche du curseur. Rien a calibrer, quelle que soit la resolution, et
+            le cadrage suit l'infobulle ou qu'elle apparaisse — Tarkov la place
+            au-dessus, en dessous, a gauche ou a droite selon la place disponible.
+          </p>
+          <p class="hint">
+            Le mode <strong>zone fixe</strong> n'est qu'un filet de securite si la
+            detection automatique echoue sur votre configuration. Les valeurs sont en
+            pixels, relatives au curseur.
+          </p>
+          <div class="grid-2" id="manual-region">
+            <div class="field">
+              <label for="regionX">Decalage X</label>
+              <input id="regionX" type="number" data-region="offsetX" />
+            </div>
+            <div class="field">
+              <label for="regionY">Decalage Y</label>
+              <input id="regionY" type="number" data-region="offsetY" />
+            </div>
+            <div class="field">
+              <label for="regionW">Largeur</label>
+              <input id="regionW" type="number" min="60" max="2000" data-region="width" />
+            </div>
+            <div class="field">
+              <label for="regionH">Hauteur</label>
+              <input id="regionH" type="number" min="20" max="1000" data-region="height" />
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Reactivite et charge CPU</h3>
+          <div class="field">
+            <label for="hoverSettleMs">Immobilite avant analyse (ms)</label>
+            <input id="hoverSettleMs" type="number" min="50" max="2000" step="10" data-config="hoverSettleMs" />
+            <span class="hint-inline">Plus bas = plus reactif, plus d'OCR inutiles.</span>
+          </div>
+          <div class="field">
+            <label for="minOcrIntervalMs">Intervalle minimal entre OCR (ms)</label>
+            <input id="minOcrIntervalMs" type="number" min="120" max="5000" step="10" data-config="minOcrIntervalMs" />
+          </div>
+          <div class="field">
+            <label for="cursorMoveThresholdPx">Seuil de mouvement (px)</label>
+            <input id="cursorMoveThresholdPx" type="number" min="1" max="200" data-config="cursorMoveThresholdPx" />
+          </div>
+          <div class="field">
+            <label for="autoHideMs">Masquage automatique (ms)</label>
+            <input id="autoHideMs" type="number" min="300" max="60000" step="100" data-config="autoHideMs" />
+          </div>
+          <div class="field">
+            <label for="matchThreshold">Seuil de correspondance</label>
+            <input id="matchThreshold" type="number" min="0.3" max="0.99" step="0.01" data-config="matchThreshold" />
+            <span class="hint-inline">Trop bas = faux positifs. Trop haut = items non reconnus.</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ------------------------------------------------------------ -->
+      <section class="section" data-section="appearance">
+        <h2>Apparence</h2>
+        <div class="card">
+          <div class="field">
+            <label for="overlayOpacity">Opacite</label>
+            <input id="overlayOpacity" type="range" min="0.1" max="1" step="0.05" data-config="overlayOpacity" />
+            <output id="out-opacity" class="output"></output>
+          </div>
+          <div class="field">
+            <label for="overlayScale">Echelle</label>
+            <input id="overlayScale" type="range" min="0.6" max="2.5" step="0.05" data-config="overlayScale" />
+            <output id="out-scale" class="output"></output>
+          </div>
+          <label class="check">
+            <input type="checkbox" data-config="showIcon" />
+            <span>Afficher l'icone de l'item (necessite un acces reseau)</span>
+          </label>
+        </div>
+      </section>
+
+      <!-- ------------------------------------------------------------ -->
+      <section class="section" data-section="hotkeys">
+        <h2>Raccourcis globaux</h2>
+        <div class="card">
+          <p class="hint">
+            Syntaxe Electron : <code>Control</code>, <code>Shift</code>, <code>Alt</code>,
+            <code>Super</code> combines par <code>+</code>. Exemple : <code>Control+Shift+P</code>.
+            Un raccourci deja pris par une autre application (Discord, Steam, GeForce
+            Experience) sera refuse silencieusement par Windows — verifiez les logs.
+          </p>
+          <div class="field">
+            <label for="hkOverlay">Activer / desactiver l'overlay</label>
+            <input id="hkOverlay" type="text" data-hotkey="toggleOverlay" spellcheck="false" />
+          </div>
+          <div class="field">
+            <label for="hkDebug">Basculer le mode debug</label>
+            <input id="hkDebug" type="text" data-hotkey="toggleDebug" spellcheck="false" />
+          </div>
+          <div class="field">
+            <label for="hkSettings">Ouvrir la configuration</label>
+            <input id="hkSettings" type="text" data-hotkey="openSettings" spellcheck="false" />
+          </div>
+        </div>
+      </section>
+
+      <!-- ------------------------------------------------------------ -->
+      <section class="section" data-section="debug">
+        <h2>Debug</h2>
+        <div class="card">
+          <label class="check">
+            <input type="checkbox" data-config="debugMode" />
+            <span>Mode debug actif (capture les images et les logs detailles)</span>
+          </label>
+          <p class="hint">
+            Placez le curseur sur un objet dans Tarkov, laissez l'infobulle
+            apparaitre, puis declenchez une analyse. Deux images sont affichees : la
+            fenetre de recherche (ce que voit le detecteur) et la zone finalement
+            retenue, apres agrandissement, normalisation et inversion — c'est
+            exactement ce que recoit Tesseract.
+          </p>
+          <div class="row-buttons">
+            <button id="btn-probe" class="btn">Analyser maintenant</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Derniere analyse</h3>
+          <div id="debug-empty" class="hint">Aucune analyse pour l'instant.</div>
+          <div id="debug-body" hidden>
+            <h4>Fenetre de recherche</h4>
+            <img id="debug-search" class="debug-image debug-search" alt="Fenetre de recherche" />
+            <h4>Zone retenue, telle que la voit Tesseract</h4>
+            <img id="debug-image" class="debug-image" alt="Zone analysee" />
+            <div class="debug-meta">
+              <span id="debug-timing"></span>
+              <span id="debug-conf"></span>
+              <span id="debug-rect"></span>
+            </div>
+            <div id="debug-skip" class="alert" hidden></div>
+            <h4>Texte OCR brut</h4>
+            <pre id="debug-text" class="pre"></pre>
+            <h4>Candidats</h4>
+            <ul id="debug-candidates" class="candidates"></ul>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script src="settings.js"></script>
+  </body>
+</html>
