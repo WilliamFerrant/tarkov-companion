@@ -37,21 +37,20 @@ const log = createLogger('windows');
 const OVERLAY_WIDTH = 170;
 /** Hauteur initiale, corrigee des que le renderer a mesure son contenu. */
 const OVERLAY_DEFAULT_HEIGHT = 130;
-/** Ecart entre le curseur et le coin de la carte, sur le repli au-dessus. */
-const CURSOR_GAP = 22;
 
 /**
  * Decalage de la carte par rapport au curseur, en pixels logiques.
  *
- * Calques sur la geometrie mesuree de l'infobulle de Tarkov, qui s'ancre au
- * curseur avec un decalage constant de (-16, -83) : la carte reprend le meme
- * bord gauche, et se pose sous le curseur pour ne jamais empieter sur la boite
- * du jeu, qui se developpe vers le haut.
+ * En bas a droite, comme une infobulle classique. L'infobulle de Tarkov, elle,
+ * se developpe vers le **haut** (bord haut mesure a -83, bord bas a -33) : se
+ * poser sous le curseur garantit donc de ne jamais la recouvrir, sans avoir a
+ * connaitre sa hauteur.
+ *
+ * `CARD_OFFSET_X` sert aussi d'ecart symetrique lors de la bascule a gauche pres
+ * du bord droit de l'ecran.
  */
-const CARD_OFFSET_X = -16;
-const CARD_OFFSET_Y = 24;
-/** Ecart entre l'infobulle du jeu et la carte, pour qu'elles restent distinctes. */
-const TOOLTIP_GAP = 8;
+const CARD_OFFSET_X = 14;
+const CARD_OFFSET_Y = 22;
 
 const rendererDir = path.join(__dirname, '..', 'renderer');
 const preloadDir = path.join(__dirname, '..', 'preload');
@@ -228,16 +227,14 @@ export function setOverlayHeight(height: number, config: AppConfig): void {
 }
 
 /**
- * Positionne la carte pres du curseur puis l'affiche.
- * La carte bascule a gauche ou au-dessus du curseur si elle depasserait de
- * l'ecran, de sorte qu'elle reste toujours entierement visible.
+ * Positionne la carte sous le curseur, a sa droite, puis l'affiche.
+ *
+ * Position unique et previsible : c'est ce qu'on attend d'une infobulle, et la
+ * seule chose qui permette de lire un prix sans chercher la carte des yeux.
+ * Elle ne bascule a gauche que pres du bord droit de l'ecran, et ne remonte que
+ * du strict necessaire pres du bord bas.
  */
-export function showOverlayAt(
-  cursor: { x: number; y: number },
-  config: AppConfig,
-  /** Rectangle de l'infobulle du jeu, en pixels logiques. La carte ne doit pas le couvrir. */
-  avoid: { x: number; y: number; width: number; height: number } | null = null,
-): void {
+export function showOverlayAt(cursor: { x: number; y: number }, config: AppConfig): void {
   const window = overlayWindow;
   if (!window || window.isDestroyed()) return;
 
@@ -257,16 +254,33 @@ export function showOverlayAt(
   // Le curseur, lui, est un repere exact et gratuit. Toutes les mesures montrent
   // l'infobulle **au-dessus** de lui (bord haut a -83, bord bas a -33) : une
   // carte posee en dessous ne peut donc jamais la recouvrir, quelle que soit sa
-  // hauteur reelle. `avoid` ne sert plus qu'au repli ci-dessous.
+  // hauteur reelle.
   let x = cursor.x + CARD_OFFSET_X;
   let y = cursor.y + CARD_OFFSET_Y;
 
-  // Pas la place en dessous : on repasse au-dessus de l'infobulle plutot que du
-  // curseur, pour ne pas la masquer.
-  if (y + height > area.y + area.height) {
-    y = avoid ? avoid.y - height - TOOLTIP_GAP : cursor.y - height - CURSOR_GAP;
+  // --- Bord droit : bascule a gauche du curseur ---
+  //
+  // Symetrique de la position nominale, et non un simple recalage contre le bord
+  // de l'ecran : la carte reste ainsi a distance constante du curseur, d'un cote
+  // ou de l'autre. C'est le comportement des infobulles du jeu lui-meme.
+  if (x + width > area.x + area.width) {
+    x = cursor.x - width - CARD_OFFSET_X;
   }
-  if (x + width > area.x + area.width) x = area.x + area.width - width;
+
+  // --- Bord bas : on remonte du strict minimum ---
+  //
+  // La version precedente repliait la carte **au-dessus** du curseur des qu'elle
+  // depassait en bas. Sur un objet du bas de l'ecran, elle atterrissait donc a
+  // plusieurs centaines de pixels au-dessus, sans rapport visuel avec ce qui
+  // etait survole — rapporte en jeu, captures a l'appui.
+  //
+  // La carte reste desormais ancree en bas a droite du curseur en toute
+  // circonstance ; pres du bord, elle se contente de glisser vers le haut juste
+  // ce qu'il faut pour rester entiere. Le lien visuel avec le curseur est
+  // conserve, ce qui est precisement ce qu'on attend d'une infobulle.
+  if (y + height > area.y + area.height) {
+    y = area.y + area.height - height;
+  }
 
   // Garde-fou final : la carte ne doit jamais sortir de la zone de travail.
   x = Math.max(area.x, Math.min(x, area.x + area.width - width));

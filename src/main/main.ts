@@ -325,9 +325,9 @@ async function bootstrap(): Promise<void> {
   // --- Detection ---
   if (initial.onlyWhenGameFocused) foreground.start();
 
-  detector.on('match', (summary: PriceSummary, cursor: { x: number; y: number }, tooltipRect) => {
+  detector.on('match', (summary: PriceSummary, cursor: { x: number; y: number }) => {
     const current = config.get();
-    showOverlayAt(cursor, current, tooltipRect ?? null);
+    showOverlayAt(cursor, current);
     send(getOverlayWindow(), IPC.OVERLAY_SHOW, summary);
   });
   detector.on('follow', (cursor: { x: number; y: number }) => followCursor(cursor, config.get()));
