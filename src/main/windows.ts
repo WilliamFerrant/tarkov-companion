@@ -82,6 +82,34 @@ let anchorOffset: { dx: number; dy: number } | null = null;
  */
 const OVERLAY_PAD = 160;
 
+/**
+ * Marge lorsque le suivi du curseur est desactive.
+ *
+ * La marge n'existe que pour laisser la carte **glisser** a l'interieur de la
+ * fenetre. Sans suivi, elle ne sert plus a rien — et elle coute cher : une
+ * fenetre de 550x566 pour une carte de 230x246, soit 5,4 fois la surface a
+ * recomposer a chaque image.
+ *
+ * Quelques pixels suffisent alors a loger l'ombre portee du liseré.
+ */
+const OVERLAY_PAD_STATIC = 4;
+
+/**
+ * Marge effective, selon que la carte suit le curseur ou non.
+ *
+ * Pourquoi le suivi coute si cher : une fenetre **transparente** ne peut pas
+ * etre presentee en « independent flip » par Chromium — chacune de ses images
+ * repasse obligatoirement par le DWM, qui doit alors recomposer la fenetre du
+ * jeu. Le suivi, emis a la cadence du sondage curseur, imposait donc ~40
+ * recompositions par seconde tant que la carte etait affichee, la ou le pipeline
+ * de detection n'en demande que huit. Le commentaire d'origine de `followCursor`
+ * affirmait l'inverse — que le glissement restait interne au renderer — ce qui
+ * n'est vrai que pour une fenetre opaque.
+ */
+function overlayPad(config: AppConfig): number {
+  return config.overlayFollowCursor ? OVERLAY_PAD : OVERLAY_PAD_STATIC;
+}
+
 export function createOverlayWindow(config: AppConfig): BrowserWindow {
   const window = new BrowserWindow({
     width: Math.round(OVERLAY_WIDTH * config.overlayScale),
@@ -159,7 +187,7 @@ export function setOverlayHeight(height: number, config: AppConfig): void {
     ...overlayWindow.getBounds(),
     // La marge fait partie de la fenetre : sans elle, la carte serait rognee des
     // qu'elle glisse vers le bas.
-    height: Math.round(clamped * config.overlayScale) + OVERLAY_PAD * 2,
+    height: Math.round(clamped * config.overlayScale) + overlayPad(config) * 2,
   });
 }
 
@@ -214,14 +242,15 @@ export function showOverlayAt(
   // prolonge, sans avoir a relocaliser quoi que ce soit entre deux analyses.
   anchorOffset = { dx: x - cursor.x, dy: y - cursor.y };
 
-  // La fenetre est plus grande que la carte de `OVERLAY_PAD` de chaque cote, et
-  // ne bouge plus qu'ici. Tout le suivi ulterieur se fait par translation de la
-  // carte **a l'interieur** de cette marge — sans jamais deplacer la fenetre.
+  // Avec le suivi actif, la fenetre est plus grande que la carte et ne bouge
+  // plus qu'ici : la carte glisse ensuite **a l'interieur** de cette marge. Sans
+  // suivi, la marge se reduit a l'ombre du liseré et la fenetre epouse la carte.
+  const pad = overlayPad(config);
   const frame = {
-    x: Math.round(Math.max(area.x, Math.min(x - OVERLAY_PAD, area.x + area.width - (width + OVERLAY_PAD * 2)))),
-    y: Math.round(Math.max(area.y, Math.min(y - OVERLAY_PAD, area.y + area.height - (height + OVERLAY_PAD * 2)))),
-    width: width + OVERLAY_PAD * 2,
-    height: height + OVERLAY_PAD * 2,
+    x: Math.round(Math.max(area.x, Math.min(x - pad, area.x + area.width - (width + pad * 2)))),
+    y: Math.round(Math.max(area.y, Math.min(y - pad, area.y + area.height - (height + pad * 2)))),
+    width: width + pad * 2,
+    height: height + pad * 2,
   };
   window.setBounds(frame);
   sendFollow(window, x - frame.x, y - frame.y);
@@ -250,6 +279,8 @@ export function showOverlayAt(
  * position change reellement, pour ne pas solliciter le compositeur a vide.
  */
 export function followCursor(cursor: { x: number; y: number }, config: AppConfig): void {
+  if (!config.overlayFollowCursor) return;
+
   const window = overlayWindow;
   if (!window || window.isDestroyed() || !window.isVisible() || !anchorOffset) return;
 
@@ -258,13 +289,13 @@ export function followCursor(cursor: { x: number; y: number }, config: AppConfig
   const height = Math.round(overlayHeight * config.overlayScale);
 
   // Position voulue de la carte, puis position correspondante **dans** la
-  // fenetre. Tant qu'elle tient dans la marge, aucun deplacement de fenetre
-  // n'est necessaire : la carte se contente de glisser, ce que le compositeur du
-  // renderer fait sans solliciter le DWM.
+  // fenetre. Tant qu'elle tient dans la marge, la fenetre n'a pas a bouger : la
+  // carte se contente de glisser par translation CSS.
   //
-  // La marge (160 px) est plus large que la distance de disparition de la carte
-  // (90 px) : en pratique la fenetre ne bouge donc **jamais** pendant la vie
-  // d'une carte, et le suivi est fluide a la cadence du sondage.
+  // Attention a ne pas en conclure que le suivi est gratuit. Il l'aurait ete sur
+  // une fenetre opaque ; sur une fenetre **transparente**, chaque image repasse
+  // par le DWM, qui recompose alors le jeu. C'est pourquoi le suivi est
+  // desactive par defaut — voir `overlayPad`.
   const wantedX = cursor.x + anchorOffset.dx;
   const wantedY = cursor.y + anchorOffset.dy;
   const insideX = wantedX - frame.x;
@@ -278,13 +309,14 @@ export function followCursor(cursor: { x: number; y: number }, config: AppConfig
   // Sortie de la marge : cas rare (grand ecart de curseur en un seul tick). On
   // recentre la fenetre, seule circonstance ou elle est encore deplacee.
   const area = screen.getDisplayNearestPoint(cursor).workArea;
-  const x = Math.max(area.x, Math.min(wantedX - OVERLAY_PAD, area.x + area.width - (width + OVERLAY_PAD * 2)));
-  const y = Math.max(area.y, Math.min(wantedY - OVERLAY_PAD, area.y + area.height - (height + OVERLAY_PAD * 2)));
+  const pad = overlayPad(config);
+  const x = Math.max(area.x, Math.min(wantedX - pad, area.x + area.width - (width + pad * 2)));
+  const y = Math.max(area.y, Math.min(wantedY - pad, area.y + area.height - (height + pad * 2)));
   window.setBounds({
     x: Math.round(x),
     y: Math.round(y),
-    width: width + OVERLAY_PAD * 2,
-    height: height + OVERLAY_PAD * 2,
+    width: width + pad * 2,
+    height: height + pad * 2,
   });
   sendFollow(window, Math.round(wantedX - x), Math.round(wantedY - y));
 }

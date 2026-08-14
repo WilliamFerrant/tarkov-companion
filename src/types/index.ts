@@ -190,6 +190,21 @@ export interface AppConfig {
   useCaptureStream: boolean;
   /** Affiche l'icone de l'item. Necessite un acces reseau. */
   showIcon: boolean;
+  /**
+   * La carte suit le curseur tant qu'elle est affichee.
+   *
+   * Desactive par defaut, et ce n'est pas un choix esthetique. Une fenetre
+   * transparente ne peut pas etre presentee en « independent flip » : chacune de
+   * ses images repasse par le DWM, qui recompose alors la fenetre du jeu. Le
+   * suivi, emis a la cadence du sondage curseur, impose donc ~40 recompositions
+   * par seconde tant qu'une carte est visible — la ou la detection elle-meme n'en
+   * demande que huit. Il oblige de plus a dimensionner la fenetre bien plus
+   * grande que la carte (550x566 pour 230x246), pour que celle-ci puisse y
+   * glisser : cinq fois plus de surface a recomposer a chaque image.
+   *
+   * Activez-le si votre machine l'absorbe ; c'est plus agreable a l'oeil.
+   */
+  overlayFollowCursor: boolean;
   /** Opacite de la carte overlay, 0.1 a 1. */
   overlayOpacity: number;
   /** Facteur d'echelle de la carte overlay. */
@@ -237,6 +252,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   collectCalibration: false,
   useCaptureStream: false,
   showIcon: true,
+  overlayFollowCursor: false,
   overlayOpacity: 0.95,
   overlayScale: 1,
   hotkeys: {

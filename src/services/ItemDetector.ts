@@ -421,9 +421,13 @@ export class ItemDetector extends EventEmitter {
       const expired = now - this.shownAt > config.autoHideMs;
       if (movedAway || stale || expired || !config.overlayEnabled) {
         this.hide();
-      } else {
+      } else if (config.overlayFollowCursor) {
         // La carte prolonge l'infobulle du jeu, qui suit le curseur : elle doit
         // le suivre aussi, sans attendre la prochaine analyse.
+        //
+        // Emis seulement si le suivi est demande : voir `overlayFollowCursor`,
+        // chaque envoi provoque une recomposition de la fenetre du jeu par le
+        // DWM, a la cadence du sondage curseur.
         this.emit('follow', cursor);
       }
     }
