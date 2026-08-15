@@ -1,6 +1,6 @@
 {
   "name": "tarkov-price-hover",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "Overlay Windows affichant le prix des items d'Escape from Tarkov au survol (OCR + API tarkov.dev). Usage personnel.",
   "main": "dist/main/main.js",
