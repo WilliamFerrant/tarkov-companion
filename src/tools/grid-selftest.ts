@@ -41,6 +41,16 @@ interface Sample {
   sizeScale: number;
 }
 
+/**
+ * Demi-cote de la fenetre analysee autour du curseur, en pixels a 1080p.
+ *
+ * Mesure sur les echantillons reels : a +-350 px l'autocorrelation accroche
+ * encore la seconde harmonique (135 px au lieu de 67), faute de periodes en
+ * nombre suffisant pour que la fondamentale ressorte. A +-500 elle tranche
+ * correctement. Au-dela, les panneaux voisins reviennent dans le champ.
+ */
+const SEARCH_HALF_AT_1080P = 500;
+
 /** Ecart-type d'une serie. Mesure la dispersion des pas trouves. */
 function standardDeviation(values: number[]): number {
   if (values.length < 2) return 0;
@@ -89,8 +99,26 @@ async function main(): Promise<void> {
       continue;
     }
 
+    // Fenetre centree sur le curseur, et non l'ecran entier.
+    //
+    // Un ecran complet contient plusieurs structures periodiques concurrentes —
+    // panneau personnage, gilet tactique, poches, barre d'acces rapide — chacune
+    // avec son propre pas. Leurs projections se superposent et aucune periode ne
+    // ressort : mesure faite, la detection echouait sur les trois echantillons.
+    // Restreinte au voisinage du curseur, elle ne voit que la grille survolee.
+    //
+    // La taille est un compromis : trop etroite, il n'y a pas assez de periodes
+    // pour que l'autocorrelation tranche ; trop large, les panneaux voisins
+    // reviennent. +-350 px a 1080p tient environ dix cases.
+    const half = Math.round(SEARCH_HALF_AT_1080P * sample.sizeScale);
+    const wx = Math.max(0, Math.min(sample.cursorX - half, size.width - 1));
+    const wy = Math.max(0, Math.min(sample.cursorY - half, size.height - 1));
+    const ww = Math.min(half * 2, size.width - wx);
+    const wh = Math.min(half * 2, size.height - wy);
+    const window = image.crop({ x: wx, y: wy, width: ww, height: wh });
+
     const started = Date.now();
-    const grid = detectGrid(image.toBitmap(), size.width, size.height, sample.sizeScale);
+    const grid = detectGrid(window.toBitmap(), ww, wh, sample.sizeScale);
     const elapsed = Date.now() - started;
 
     if (!grid) {
@@ -107,15 +135,16 @@ async function main(): Promise<void> {
     // Case contenant le curseur, d'apres le pas et la phase trouves. Ses bords
     // doivent encadrer le curseur : c'est la verification que la phase est juste,
     // et non seulement la periode.
-    const cx = cellIndex(sample.cursorX, grid.pitchX, grid.phaseX);
-    const cy = cellIndex(sample.cursorY, grid.pitchY, grid.phaseY);
+    // La phase est exprimee dans le repere de la fenetre analysee : le curseur
+    // doit y etre ramene avant toute comparaison.
+    const localX = sample.cursorX - wx;
+    const localY = sample.cursorY - wy;
+    const cx = cellIndex(localX, grid.pitchX, grid.phaseX);
+    const cy = cellIndex(localY, grid.pitchY, grid.phaseY);
     const left = cellEdge(cx, grid.pitchX, grid.phaseX);
     const top = cellEdge(cy, grid.pitchY, grid.phaseY);
     const encloses =
-      sample.cursorX >= left &&
-      sample.cursorX < left + grid.pitchX &&
-      sample.cursorY >= top &&
-      sample.cursorY < top + grid.pitchY;
+      localX >= left && localX < left + grid.pitchX && localY >= top && localY < top + grid.pitchY;
 
     console.log(
       `[OK]    ${sample.file.padEnd(16)} ${sample.itemName.slice(0, 26).padEnd(28)} ` +
@@ -146,20 +175,46 @@ async function main(): Promise<void> {
   console.log(`  ecart-type   ${deviation.toFixed(2)}`);
 
   console.log('');
-  // Tous les echantillons viennent du meme ecran : le pas doit etre constant.
-  if (failures === 0 && max - min <= 1) {
-    console.log(`VERDICT : fiable. Pas constant a ${Math.round(mean)} px sur tous les echantillons.`);
-  } else if (max - min <= 3) {
-    console.log(`VERDICT : exploitable. Pas a ${Math.round(mean)} px, dispersion de ${max - min} px.`);
-  } else {
+
+  // Deux criteres independants, tous deux necessaires.
+  //
+  // 1. La **constance** : tous les echantillons viennent du meme ecran, a la
+  //    meme resolution et a la meme echelle d'interface, donc le pas doit y etre
+  //    identique. Une dispersion signale un detecteur qui accroche du bruit.
+  //
+  // 2. Le **taux de detection** : la constance ne veut rien dire sur une seule
+  //    mesure. Un detecteur qui ne repond qu'une fois sur trois n'est pas
+  //    exploitable, meme si cette unique reponse est juste — c'est precisement
+  //    ce que l'ancien verdict declarait « exploitable » a tort.
+  //
+  // Certains echecs sont legitimes : un curseur pose sur les poches ou le gilet
+  // ne survole pas une grille assez etendue pour qu'une periode ressorte. D'ou
+  // un seuil a la majorite plutot qu'a l'unanimite.
+  const detectionRate = pitches.length / samples.length;
+  const consistent = max - min <= 3;
+  const enough = pitches.length >= 2 && detectionRate >= 0.5;
+
+  if (!enough) {
+    console.log(
+      `VERDICT : insuffisant. ${pitches.length} detection(s) sur ${samples.length} — ` +
+        'trop peu pour conclure quoi que ce soit sur la constance du pas.',
+    );
+  } else if (!consistent) {
     console.log(
       `VERDICT : instable. Le pas varie de ${min} a ${max} px alors que tous les ` +
         'echantillons proviennent du meme ecran : le detecteur accroche autre chose que la grille.',
     );
+  } else if (failures === 0 && max - min <= 1) {
+    console.log(`VERDICT : fiable. Pas constant a ${Math.round(mean)} px sur tous les echantillons.`);
+  } else {
+    console.log(
+      `VERDICT : exploitable. Pas a ${Math.round(mean)} px, dispersion de ${max - min} px, ` +
+        `detecte sur ${pitches.length}/${samples.length} echantillons.`,
+    );
   }
   console.log('');
 
-  app.exit(0);
+  app.exit(enough && consistent ? 0 : 1);
 }
 
 app.whenReady().then(main).catch((err) => {

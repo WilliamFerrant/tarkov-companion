@@ -55,6 +55,15 @@ const MIN_PEAK_RATIO = 1.15;
  */
 const SUBHARMONIC_TOLERANCE = 0.7;
 
+/**
+ * Rayon de recherche, en pixels, autour d'un sous-multiple candidat.
+ *
+ * `bestPeriod / divisor` n'est pas entier : l'arrondi peut manquer le vrai pas de
+ * un a deux pixels, ce qui suffit a sortir du pic d'autocorrelation. On explore
+ * donc un petit voisinage et on retient le meilleur score.
+ */
+const SUBHARMONIC_SEARCH = 2;
+
 export interface Grid {
   /** Pas horizontal et vertical, en pixels de l'image. */
   pitchX: number;
@@ -167,16 +176,40 @@ function dominantPeriod(
   //
   // On redescend donc explicitement : si P/2, P/3 ou P/4 tiennent encore un score
   // comparable, c'est l'un d'eux la periode reelle. On garde le plus petit.
+  //
+  // Le sous-multiple est cherche dans un **voisinage**, jamais a la valeur exacte
+  // de la division. `bestPeriod` est deja un entier arrondi : le diviser reporte
+  // cette erreur, amplifiee par le diviseur. Or le pic d'autocorrelation est
+  // etroit, et un pixel d'ecart suffit a tomber dans le creux.
+  //
+  // Cas mesure sur une capture reelle : maximum a 135, vraie grille a 67. Le lag
+  // 67 conservait 77 % du score — largement au-dessus de la tolerance — mais le
+  // code testait `round(135 / 2) = 68`, qui n'en gardait que 60 %. La correction
+  // echouait donc a un pixel pres, et le detecteur renvoyait le double du pas.
+  const scoreAt = (period: number): number => {
+    let sum = 0;
+    const limit = n - period;
+    for (let i = 0; i < limit; i++) sum += centred[i]! * centred[i + period]!;
+    return sum / limit;
+  };
+
   let period = bestPeriod;
   for (const divisor of [4, 3, 2]) {
-    const candidate = Math.round(bestPeriod / divisor);
-    if (candidate < minPeriod || candidate > maxPeriod) continue;
-    let sum = 0;
-    const limit = n - candidate;
-    for (let i = 0; i < limit; i++) sum += centred[i]! * centred[i + candidate]!;
-    const score = sum / limit;
-    if (score >= bestScore * SUBHARMONIC_TOLERANCE) {
-      period = candidate;
+    const target = bestPeriod / divisor;
+    let localBest = 0;
+    let localScore = -Infinity;
+
+    for (let candidate = Math.floor(target) - SUBHARMONIC_SEARCH; candidate <= Math.ceil(target) + SUBHARMONIC_SEARCH; candidate++) {
+      if (candidate < minPeriod || candidate > maxPeriod) continue;
+      const score = scoreAt(candidate);
+      if (score > localScore) {
+        localScore = score;
+        localBest = candidate;
+      }
+    }
+
+    if (localBest !== 0 && localScore >= bestScore * SUBHARMONIC_TOLERANCE) {
+      period = localBest;
       break;
     }
   }
