@@ -25,6 +25,8 @@
     "icons": "node scripts/make-icons.mjs",
     "pack": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder",
+    "preversion": "node scripts/preversion.mjs",
+    "postversion": "node -e \"console.log('\\n  Tag cree. Publiez-le :\\n\\n    git push --follow-tags\\n')\"",
     "release:patch": "npm version patch -m \"Version %s\"",
     "release:minor": "npm version minor -m \"Version %s\"",
     "release:major": "npm version major -m \"Version %s\""
