@@ -14,7 +14,7 @@
 
 import { Tray, Menu, nativeImage, app } from 'electron';
 import path from 'node:path';
-import type { AppConfig, CacheStatus } from '../types/index';
+import type { AppConfig, CacheStatus, UpdateState } from '../types/index';
 import { createLogger } from '../services/Logger';
 
 const log = createLogger('tray');
@@ -26,10 +26,49 @@ export interface TrayHandlers {
   setGameMode(mode: 'regular' | 'pve'): void;
   refreshPrices(): void;
   openSettings(): void;
+  checkForUpdate(): void;
+  installUpdate(): void;
   quit(): void;
 }
 
 let tray: Tray | null = null;
+
+/**
+ * Dernier etat connu du mecanisme de mise a jour, plus le contexte necessaire
+ * pour reconstruire le menu.
+ *
+ * Le tray est reconstruit a chaque changement, qu'il vienne de la configuration,
+ * du cache ou de l'updater. Memoriser ces trois elements evite de propager un
+ * parametre supplementaire jusqu'a chaque appelant.
+ */
+let lastUpdateState: UpdateState = { status: 'disabled', reason: 'non initialise' };
+let lastContext: { config: AppConfig; status: CacheStatus; handlers: TrayHandlers } | null = null;
+
+/** Libelle de l'entree « mise a jour », selon l'etat courant. */
+function updateLabel(state: UpdateState): string {
+  switch (state.status) {
+    case 'disabled':
+      return 'Mises a jour : version de developpement';
+    case 'checking':
+      return 'Recherche de mise a jour...';
+    case 'available':
+      return `Version ${state.version} trouvee, telechargement...`;
+    case 'downloading':
+      return `Telechargement ${state.percent} %`;
+    case 'ready':
+      return `Redemarrer pour installer ${state.version}`;
+    case 'error':
+      return 'Mise a jour indisponible (voir les logs)';
+    default:
+      return 'Rechercher une mise a jour';
+  }
+}
+
+/** Met a jour l'etat des mises a jour et reconstruit le menu. */
+export function setTrayUpdateState(state: UpdateState): void {
+  lastUpdateState = state;
+  if (lastContext) updateTray(lastContext.config, lastContext.status, lastContext.handlers);
+}
 
 export function createTray(config: AppConfig, status: CacheStatus, handlers: TrayHandlers): Tray {
   const iconPath = path.join(app.getAppPath(), 'assets', 'tray.png');
@@ -50,6 +89,7 @@ export function createTray(config: AppConfig, status: CacheStatus, handlers: Tra
 
 /** Reconstruit le menu contextuel avec l'etat courant. */
 export function updateTray(config: AppConfig, status: CacheStatus, handlers: TrayHandlers): void {
+  lastContext = { config, status, handlers };
   if (!tray || tray.isDestroyed()) return;
 
   const menu = Menu.buildFromTemplate([
@@ -112,6 +152,17 @@ export function updateTray(config: AppConfig, status: CacheStatus, handlers: Tra
       label: 'Configuration...',
       click: () => handlers.openSettings(),
       accelerator: config.hotkeys.openSettings,
+    },
+    { type: 'separator' },
+    {
+      label: updateLabel(lastUpdateState),
+      // Cliquable seulement quand il y a quelque chose a faire : verifier, ou
+      // redemarrer pour appliquer. Les etats transitoires restent informatifs.
+      enabled: lastUpdateState.status === 'idle' || lastUpdateState.status === 'ready' || lastUpdateState.status === 'error',
+      click: () => {
+        if (lastUpdateState.status === 'ready') handlers.installUpdate();
+        else handlers.checkForUpdate();
+      },
     },
     { label: 'Quitter', click: () => handlers.quit() },
   ]);

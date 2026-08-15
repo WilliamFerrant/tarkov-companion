@@ -12,6 +12,10 @@
  *   - `tesseract.js` est marque external : la lib resout dynamiquement le chemin de
  *     ses workers/wasm a l'execution. La bundler casse ce mecanisme. Elle doit donc
  *     rester dans node_modules (et etre `asarUnpack` lors du packaging).
+ *   - `electron-updater` est marque external pour la meme raison : il charge ses
+ *     fournisseurs par require dynamique et cherche `app-update.yml` relativement
+ *     a sa propre position dans node_modules. Le bundler ajoutait 258 Ko au
+ *     process principal pour un module qui n'aurait pas fonctionne empaquete.
  *   - Les fichiers HTML/CSS sont simplement copies vers dist/renderer.
  *
  * Usage : `node build.mjs` ou `node build.mjs --watch`
@@ -30,7 +34,7 @@ const watch = process.argv.includes('--watch');
 const dev = watch || process.argv.includes('--dev');
 
 /** Dependances resolues a l'execution, jamais incluses dans le bundle. */
-const EXTERNAL = ['electron', 'tesseract.js'];
+const EXTERNAL = ['electron', 'tesseract.js', 'electron-updater'];
 
 /** @type {esbuild.BuildOptions} */
 const common = {

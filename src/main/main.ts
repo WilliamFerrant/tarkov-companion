@@ -46,8 +46,9 @@ import { PriceCache } from '../services/PriceCache';
 import { ItemIndex } from '../services/ItemIndex';
 import { ForegroundWatcher } from '../services/ForegroundWatcher';
 import { ItemDetector } from '../services/ItemDetector';
+import { Updater, type UpdateState } from '../services/Updater';
 import { registerHotkeys, unregisterHotkeys } from './hotkeys';
-import { createTray, updateTray, destroyTray, type TrayHandlers } from './tray';
+import { createTray, updateTray, destroyTray, setTrayUpdateState, type TrayHandlers } from './tray';
 import {
   createOverlayWindow,
   createSettingsWindow,
@@ -109,6 +110,7 @@ let log = createLogger('main');
 let config: ConfigStore;
 let cache: PriceCache;
 let detector: ItemDetector;
+let updater: Updater;
 const index = new ItemIndex();
 const foreground = new ForegroundWatcher();
 
@@ -265,6 +267,8 @@ const trayHandlers: TrayHandlers = {
   setGameMode: (mode: GameMode) => setConfig({ gameMode: mode }),
   refreshPrices: () => void cache.refresh(),
   openSettings: () => showSettings(),
+  checkForUpdate: () => void updater.check(),
+  installUpdate: () => updater.quitAndInstall(),
   quit: () => {
     (app as { isQuitting?: boolean }).isQuitting = true;
     app.quit();
@@ -288,6 +292,10 @@ function registerIpc(): void {
 
   ipcMain.handle(IPC.OPEN_LOGS, () => shell.openPath(getLogDir()));
   ipcMain.handle(IPC.OPEN_CONFIG, () => shell.openPath(config.path));
+
+  ipcMain.handle(IPC.UPDATE_STATUS, () => updater.current());
+  ipcMain.handle(IPC.UPDATE_CHECK, () => updater.check());
+  ipcMain.handle(IPC.UPDATE_INSTALL, () => updater.quitAndInstall());
 
   // La hauteur mesuree arrive a chaque affichage : `on` (fire-and-forget) plutot
   // que `handle`, le renderer n'attend pas de reponse.
@@ -395,6 +403,17 @@ async function bootstrap(): Promise<void> {
 
   detector.start();
 
+  // --- Mises a jour ---
+  // Demarrees en dernier : la premiere verification est de toute facon differee,
+  // et rien ici ne doit retarder l'affichage des prix.
+  updater = new Updater();
+  updater.on('changed', (state: UpdateState) => {
+    send(getSettingsWindow(), IPC.UPDATE_CHANGED, state);
+    setTrayUpdateState(state);
+  });
+  setTrayUpdateState(updater.current());
+  updater.start();
+
   // Premier lancement sans cache : on guide l'utilisateur vers la configuration
   // plutot que de le laisser devant un outil silencieux.
   if (index.size === 0) {
@@ -452,6 +471,7 @@ app.on('will-quit', () => {
   unregisterHotkeys();
   foreground.stop();
   cache?.dispose();
+  updater?.stop();
   destroyTray();
   // `dispose` est asynchrone : on ne bloque pas la fermeture pour un worker OCR.
   void detector?.dispose();

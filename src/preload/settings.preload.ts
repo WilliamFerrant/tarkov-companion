@@ -9,7 +9,7 @@
 
 import { contextBridge, ipcRenderer } from 'electron';
 import { IPC, type SettingsApi } from '../types/ipc';
-import type { AppConfig, CacheStatus, DebugFrame } from '../types/index';
+import type { AppConfig, CacheStatus, DebugFrame, UpdateState } from '../types/index';
 
 const api: SettingsApi = {
   getConfig: () => ipcRenderer.invoke(IPC.CONFIG_GET),
@@ -28,6 +28,12 @@ const api: SettingsApi = {
   probe: () => ipcRenderer.invoke(IPC.DEBUG_PROBE),
   openLogs: () => ipcRenderer.invoke(IPC.OPEN_LOGS),
   openConfig: () => ipcRenderer.invoke(IPC.OPEN_CONFIG),
+  getUpdateStatus: () => ipcRenderer.invoke(IPC.UPDATE_STATUS),
+  checkForUpdate: () => ipcRenderer.invoke(IPC.UPDATE_CHECK),
+  installUpdate: () => ipcRenderer.invoke(IPC.UPDATE_INSTALL),
+  onUpdateChanged: (cb) => {
+    ipcRenderer.on(IPC.UPDATE_CHANGED, (_event, state: UpdateState) => cb(state));
+  },
 };
 
 contextBridge.exposeInMainWorld('settingsApi', api);

@@ -1,0 +1,68 @@
+# Publication d'une version installable, consommee par l'auto-updater.
+#
+# Declenchement : un tag `vX.Y.Z` pousse sur le depot.
+#
+# Pourquoi un tag plutot qu'un push sur `main` : une release est un acte
+# deliberе. Publier a chaque fusion imposerait un telechargement a l'utilisateur
+# pour n'importe quel correctif de commentaire, et rendrait impossible de fusionner
+# plusieurs changements avant de livrer.
+#
+# `electron-builder --publish always` televerse l'installeur **et** le fichier
+# `latest.yml`. Ce dernier est ce que lit `electron-updater` pour savoir qu'une
+# version plus recente existe : sans lui, l'auto-mise a jour ne verrait jamais
+# rien, meme avec une release presente.
+
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  # Necessaire pour creer la release et y televerser les fichiers.
+  contents: write
+
+jobs:
+  publish:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Installer les dependances
+        run: npm ci
+
+      # Garde-fou : `electron-builder` lit la version dans package.json, pas dans
+      # le tag. Les deux qui divergent produiraient une release `v1.2.0`
+      # contenant un installeur `1.1.0`, et un `latest.yml` annoncant une version
+      # que l'updater ne retrouverait jamais. L'incoherence est silencieuse : on
+      # la transforme en echec immediat.
+      - name: Verifier que le tag correspond a package.json
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}" -replace '^v', ''
+          $pkg = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          if ($tag -ne $pkg) {
+            Write-Error "Le tag ($tag) ne correspond pas a package.json ($pkg). Alignez les deux avant de taguer."
+            exit 1
+          }
+          Write-Output "Version $pkg confirmee."
+
+      - name: Verifier le typage
+        run: npm run typecheck
+
+      - name: Correspondance floue (Node pur)
+        run: npm run test:match
+
+      - name: Compiler
+        run: npm run build
+
+      - name: Publier l'installeur et latest.yml
+        run: npx electron-builder --win --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

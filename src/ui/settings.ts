@@ -18,7 +18,7 @@
  * le focus pour ne pas ecraser une saisie en cours.
  */
 
-import type { AppConfig, CacheStatus, DebugFrame } from '../types/index';
+import type { AppConfig, CacheStatus, DebugFrame, UpdateState } from '../types/index';
 import type { SettingsApi } from '../types/ipc';
 
 declare global {
@@ -245,6 +245,71 @@ document.getElementById('btn-logs')?.addEventListener('click', () => void api.op
 document.getElementById('btn-config')?.addEventListener('click', () => void api.openConfig());
 
 // ---------------------------------------------------------------------------
+// Mises a jour
+// ---------------------------------------------------------------------------
+
+const updateInfo = document.getElementById('update-info')!;
+const updateError = document.getElementById('update-error')!;
+const updateCheckButton = document.getElementById('btn-update-check') as HTMLButtonElement;
+const updateInstallButton = document.getElementById('btn-update-install') as HTMLButtonElement;
+
+function renderUpdate(state: UpdateState): void {
+  updateError.hidden = true;
+  updateInstallButton.hidden = true;
+  updateCheckButton.disabled = false;
+  updateCheckButton.textContent = 'Verifier';
+
+  switch (state.status) {
+    case 'disabled':
+      // Etat normal en developpement : ce n'est pas une panne, on ne l'annonce
+      // pas comme telle et on desactive simplement le bouton.
+      updateInfo.textContent = state.reason;
+      updateCheckButton.disabled = true;
+      break;
+    case 'checking':
+      updateInfo.textContent = `Version ${state.currentVersion} — recherche en cours…`;
+      updateCheckButton.disabled = true;
+      updateCheckButton.textContent = 'Recherche…';
+      break;
+    case 'available':
+      updateInfo.textContent = `Version ${state.version} disponible — telechargement en arriere-plan…`;
+      updateCheckButton.disabled = true;
+      break;
+    case 'downloading':
+      updateInfo.textContent = `Telechargement de la version ${state.version} : ${state.percent} %`;
+      updateCheckButton.disabled = true;
+      break;
+    case 'ready':
+      updateInfo.innerHTML =
+        `<strong>Version ${state.version} prete.</strong><br />` +
+        `Elle s'installera a la prochaine fermeture, ou immediatement via le bouton.`;
+      updateInstallButton.hidden = false;
+      break;
+    case 'error':
+      updateInfo.textContent = `Version ${state.currentVersion} — derniere verification en echec`;
+      updateError.hidden = false;
+      updateError.textContent =
+        'Verification impossible. Sans consequence : elle sera retentee automatiquement. ' +
+        `Detail : ${state.message}`;
+      break;
+    default:
+      updateInfo.innerHTML =
+        `Version <strong>${state.currentVersion}</strong> — a jour.<br />` +
+        `Derniere verification : ${state.lastCheck ? formatTimestamp(state.lastCheck) : 'jamais'}`;
+  }
+}
+
+updateCheckButton.addEventListener('click', () => {
+  updateCheckButton.disabled = true;
+  void api.checkForUpdate().then(renderUpdate);
+});
+
+updateInstallButton.addEventListener('click', () => {
+  updateInstallButton.disabled = true;
+  void api.installUpdate();
+});
+
+// ---------------------------------------------------------------------------
 // Panneau debug
 // ---------------------------------------------------------------------------
 
@@ -334,11 +399,13 @@ probeButton.addEventListener('click', () => {
 api.onConfigChanged(populate);
 api.onCacheChanged(renderCache);
 api.onDebugFrame(renderDebug);
+api.onUpdateChanged(renderUpdate);
 
-void Promise.all([api.getConfig(), api.getCacheStatus()])
-  .then(([config, status]) => {
+void Promise.all([api.getConfig(), api.getCacheStatus(), api.getUpdateStatus()])
+  .then(([config, status, update]) => {
     populate(config);
     renderCache(status);
+    renderUpdate(update);
   })
   .catch((err: unknown) => {
     // Sans ce garde-fou, un echec IPC laissait la fenetre indefiniment sur

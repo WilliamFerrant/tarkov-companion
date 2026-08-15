@@ -89,6 +89,23 @@
         </div>
 
         <div class="card">
+          <h3>Mises a jour</h3>
+          <p class="hint">
+            Verifiees automatiquement au demarrage puis toutes les 4 heures, et
+            telechargees en arriere-plan. L'installation est <strong>differee a la
+            fermeture</strong> : jamais de redemarrage impose en pleine partie.
+          </p>
+          <div class="cache-box">
+            <div id="update-info" class="cache-info">—</div>
+            <div class="row-buttons">
+              <button id="btn-update-check" class="btn btn-ghost">Verifier</button>
+              <button id="btn-update-install" class="btn" hidden>Redemarrer et installer</button>
+            </div>
+          </div>
+          <div id="update-error" class="alert" hidden></div>
+        </div>
+
+        <div class="card">
           <h3>Fichiers</h3>
           <div class="row-buttons">
             <button id="btn-logs" class="btn btn-ghost">Ouvrir les logs</button>

@@ -335,6 +335,23 @@ export interface CacheStatus {
   nextRetryAt: number | null;
 }
 
+/**
+ * Etat du mecanisme de mise a jour automatique.
+ *
+ * `disabled` n'est pas une anomalie : c'est l'etat normal quand l'application
+ * tourne depuis les sources, ou `app-update.yml` — genere au packaging — n'existe
+ * pas.
+ */
+export type UpdateState =
+  | { status: 'disabled'; reason: string }
+  | { status: 'idle'; currentVersion: string; lastCheck: number | null }
+  | { status: 'checking'; currentVersion: string }
+  | { status: 'available'; currentVersion: string; version: string }
+  | { status: 'downloading'; currentVersion: string; version: string; percent: number }
+  /** Telechargee et prete : elle s'installera a la fermeture. */
+  | { status: 'ready'; currentVersion: string; version: string }
+  | { status: 'error'; currentVersion: string; message: string; lastCheck: number | null };
+
 /** Instantane transmis au panneau debug apres chaque tentative de detection. */
 export interface DebugFrame {
   timestamp: number;

@@ -1,0 +1,62 @@
+# Verification continue : typage, tests hors-ecran, build.
+#
+# Ce qui tourne ici et ce qui n'y tourne pas
+# ------------------------------------------
+# Une partie de la suite pilote une vraie session graphique : les auto-tests OCR,
+# de cadrage et de grille capturent l'ecran via Electron. Un agent GitHub n'a pas
+# de bureau exploitable, et ces tests y echoueraient pour une raison sans rapport
+# avec le code — un faux rouge permanent, qui apprend a ignorer le pipeline.
+#
+# La CI se limite donc a ce qu'elle peut affirmer honnetement :
+#   - le typage complet ;
+#   - `test:match`, qui tourne en Node pur (aucune dependance Electron) ;
+#   - la compilation reelle du bundle et de l'installeur.
+#
+# Les tests graphiques restent locaux, avant push : `npm run test:all`.
+
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+
+# Un push qui suit de pres un autre annule la verification devenue obsolete.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Node 22 embarque npm 10, qui n'a pas le blocage des scripts
+          # d'installation introduit dans npm 11 — sans quoi le binaire Electron
+          # ne serait pas telecharge et le build echouerait.
+          node-version: '22'
+          cache: npm
+
+      - name: Installer les dependances
+        run: npm ci
+
+      - name: Verifier le typage
+        run: npm run typecheck
+
+      - name: Correspondance floue (Node pur)
+        run: npm run test:match
+
+      - name: Compiler
+        run: npm run build
+
+      # Empaqueter sans publier : garantit que la chaine electron-builder est
+      # saine a chaque commit, et non seulement le jour d'une release.
+      - name: Empaqueter (sans publication)
+        run: npx electron-builder --win --publish never
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

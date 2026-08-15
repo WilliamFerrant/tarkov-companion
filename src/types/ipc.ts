@@ -6,7 +6,7 @@
  * process principal et les preloads.
  */
 
-import type { AppConfig, CacheStatus, DebugFrame, PriceSummary } from './index';
+import type { AppConfig, CacheStatus, DebugFrame, PriceSummary, UpdateState } from './index';
 
 export const IPC = {
   /** main -> overlay : afficher une carte de prix. */
@@ -51,6 +51,15 @@ export const IPC = {
   OPEN_LOGS: 'app:open-logs',
   /** settings -> main : ouvrir le fichier config.json. */
   OPEN_CONFIG: 'app:open-config',
+
+  /** settings -> main : etat de la mise a jour. */
+  UPDATE_STATUS: 'update:status',
+  /** settings -> main : verifier maintenant. */
+  UPDATE_CHECK: 'update:check',
+  /** settings -> main : redemarrer pour appliquer la version telechargee. */
+  UPDATE_INSTALL: 'update:install',
+  /** main -> settings : l'etat de la mise a jour a change. */
+  UPDATE_CHANGED: 'update:changed',
 } as const;
 
 /** API injectee dans la fenetre overlay (`window.overlayApi`). */
@@ -74,4 +83,8 @@ export interface SettingsApi {
   probe(): Promise<void>;
   openLogs(): Promise<void>;
   openConfig(): Promise<void>;
+  getUpdateStatus(): Promise<UpdateState>;
+  checkForUpdate(): Promise<UpdateState>;
+  installUpdate(): Promise<void>;
+  onUpdateChanged(cb: (state: UpdateState) => void): void;
 }
