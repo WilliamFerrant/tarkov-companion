@@ -62,6 +62,31 @@ jobs:
       - name: Compiler
         run: npm run build
 
+      # Cree la release AVANT electron-builder, pour lui eviter d'avoir a le faire.
+      #
+      # electron-builder televerse ses artefacts en parallele, et chaque envoi
+      # cree la release si elle manque. Les appels se croisent : la v1.0.1 a
+      # produit **deux releases pour le meme tag**, a une seconde d'ecart, avec
+      # `latest.yml` dans l'une et le blockmap dans l'autre.
+      #
+      # Sans consequence fonctionnelle — GitHub sert les fichiers par tag, et les
+      # deux le partagent — mais la page des releases affiche deux entrees
+      # identiques, et `/releases/latest` designe celle qui ne contient pas
+      # `latest.yml`. Une release deja presente supprime la course.
+      - name: Creer la release si elle n'existe pas
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "${{ github.ref_name }}"
+          gh release view $tag 2>&1 | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag --title $tag.TrimStart('v') --notes "Mise a jour automatique depuis l'application."
+            Write-Output "Release $tag creee."
+          } else {
+            Write-Output "Release $tag deja presente, reutilisee."
+          }
+
       - name: Publier l'installeur et latest.yml
         run: npx electron-builder --win --publish always
         env:
