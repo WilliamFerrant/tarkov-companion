@@ -53,15 +53,35 @@ La release est un **acte délibéré**, déclenché par un tag — jamais automa
 la fusion. Publier à chaque merge imposerait un téléchargement à l'utilisateur
 pour n'importe quel correctif de commentaire.
 
+> **PowerShell 5.1 n'accepte pas `&&`.** Une commande comme
+> `git checkout main && git merge dev` n'y échoue pas à moitié : elle **ne
+> s'exécute pas du tout**, la ligne entière étant rejetée à l'analyse. Tapez donc
+> une commande par ligne. C'est ce qui a produit une release taguée depuis `dev`
+> alors que `main` était restée en arrière.
+
 Depuis `main`, à jour et propre :
 
-```bash
+```powershell
+git checkout main
+git merge --no-ff dev
+git push
+
 npm run release:patch     # 1.0.0 -> 1.0.1  (correctif)
-npm run release:minor     # 1.0.0 -> 1.1.0  (fonctionnalité)
-npm run release:major     # 1.0.0 -> 2.0.0  (rupture)
+# ou release:minor (fonctionnalité) / release:major (rupture)
 
 git push --follow-tags
 ```
+
+Un garde-fou (`scripts/preversion.mjs`) s'exécute automatiquement avant
+`npm version` et **refuse** de créer le tag si :
+
+1. vous n'êtes pas sur `main` ;
+2. l'arbre de travail n'est pas propre ;
+3. `main` n'est pas synchronisée avec `origin/main`.
+
+Il existe parce que le cas s'est produit : le tag pointait hors de `main`, la
+branche de production annonçait une version inférieure à celle publiée, et rien
+ne l'avait signalé.
 
 `npm version` incrémente `package.json`, crée le commit et le tag en une fois —
 c'est ce qui garantit qu'ils ne divergent jamais. Le workflow `release.yml`
